@@ -11,7 +11,7 @@ scp watcher/hooks/ckpt-hook.sh azure:~/.cockpit/
 ssh azure 'chmod +x ~/.cockpit/ckpt-hook.sh'
 ```
 
-## 2. Claude Code — `Notification` e `Stop`
+## 2. Claude Code — ciclo completo por hooks
 
 No `~/.claude/settings.json` da VPS (do usuário que roda as sessões `ckpt-*`):
 
@@ -24,6 +24,36 @@ No `~/.claude/settings.json` da VPS (do usuário que roda as sessões `ckpt-*`):
           {
             "type": "command",
             "command": "~/.cockpit/ckpt-hook.sh notification claude-hook"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.cockpit/ckpt-hook.sh user_prompt_submit claude-hook"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.cockpit/ckpt-hook.sh pre_tool_use claude-hook"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.cockpit/ckpt-hook.sh post_tool_use claude-hook"
           }
         ]
       }
@@ -45,6 +75,11 @@ No `~/.claude/settings.json` da VPS (do usuário que roda as sessões `ckpt-*`):
 O hook do Claude Code passa o payload nativo (JSON) via stdin — o script lê e
 trunca para o campo `raw`; o watcher não depende do formato exato desse JSON
 (só de `source`/`event`/`session_name`, que o script controla).
+
+Semântica usada pelo Prana OPS: `Notification` espera humano;
+`UserPromptSubmit`, `PreToolUse` e `PostToolUse` comprovam processamento;
+`Stop` comprova conclusão. Não existe inferência por foco, clique, mouse ou
+crescimento bruto do log.
 
 ## 3. Codex CLI 0.145.0 — `hooks.json` + trust interativo (resolvido)
 
@@ -68,6 +103,15 @@ esta versao, e foi ela que induziu a codificar `HOOK_CAPABLE_AGENTS = {claude}`.
     "PermissionRequest": [
       { "matcher": "", "hooks": [ { "type": "command",
         "command": "/home/ubuntu/.cockpit/ckpt-hook.sh permission_request codex-hook" } ] } ],
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [ { "type": "command",
+        "command": "/home/ubuntu/.cockpit/ckpt-hook.sh user_prompt_submit codex-hook" } ] } ],
+    "PreToolUse": [
+      { "matcher": "", "hooks": [ { "type": "command",
+        "command": "/home/ubuntu/.cockpit/ckpt-hook.sh pre_tool_use codex-hook" } ] } ],
+    "PostToolUse": [
+      { "matcher": "", "hooks": [ { "type": "command",
+        "command": "/home/ubuntu/.cockpit/ckpt-hook.sh post_tool_use codex-hook" } ] } ],
     "Stop": [
       { "matcher": "", "hooks": [ { "type": "command",
         "command": "/home/ubuntu/.cockpit/ckpt-hook.sh stop codex-hook" } ] } ]
@@ -75,10 +119,12 @@ esta versao, e foi ela que induziu a codificar `HOOK_CAPABLE_AGENTS = {claude}`.
 }
 ```
 
-`PermissionRequest` e o sinal da epic (agente parou, espera humano). **`Stop` e
-obrigatorio junto**: sem ele a sessao fica `waiting_for_input` para sempre
-depois que o operador responde, porque a Camada 2 e cega para TUI. Os dois
-mapeiam em `HOOK_EVENT_STATE` (`watcher.mjs`).
+`PermissionRequest` é o sinal de espera. `UserPromptSubmit`, `PreToolUse` e
+`PostToolUse` são sinais de processamento; `Stop` é o sinal de conclusão. Todos
+mapeiam em `HOOK_EVENT_STATE` (`watcher.mjs`). Em uma aprovação de ferramenta,
+o CLI pode não emitir evento no instante do clique: nesse caso o primeiro sinal
+seguro é `PostToolUse`, após a ferramenta terminar. O cockpit mantém âmbar até
+esse sinal em vez de inventar `WORKING`.
 
 ### Onde o trust fica gravado
 
@@ -109,9 +155,9 @@ cp ~/.codex/hooks.json ~/.codex/hooks.json.bak-$(date +%Y%m%d-%H%M%S) 2>/dev/nul
 # ...gravar o JSON acima...
 
 # 2. o OPERADOR abre uma sessao Codex NOVA (hooks.json e lido no start),
-#    roda /hooks, revisa e aprova com `t`. Esperado depois: Active 1 nos dois.
+#    roda /hooks, revisa e aprova com `t`. Esperado: os cinco eventos ativos.
 
-# 3. so entao gravar o marcador por agente
+# 3. aprovar TODOS os hooks e so entao gravar o marcador por agente
 date +%s > ~/.cockpit/hooks-installed-at.codex
 ```
 

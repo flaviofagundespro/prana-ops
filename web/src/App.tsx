@@ -15,7 +15,7 @@ import { describeCoverage } from './lib/session-coverage.js';
 import type { WsClient } from './lib/ws-client.js';
 
 /**
- * Root component for the Prana OPS SPA (Story 1.4 → extended in Story 1.6).
+ * Root component for the AIOS Cockpit SPA (Story 1.4 → extended in Story 1.6).
  *
  * Story 1.6 adds:
  *  - a grouped {@link Sidebar} (VPS → project → session), fed by real profiles;
@@ -188,20 +188,6 @@ export function App({ ws: injectedWs, createTerminal, fetchFn = fetch }: AppProp
    * project/agent/n are derived from the clicked session name (UX-001 discipline).
    */
   /**
-   * Estar num painel visível = "eu vi" (2026-07-29). Consome a marca de
-   * "respondeu e você não olhou" das sessões nos painéis — tanto ao trazer uma
-   * aba ao painel quanto quando a resposta chega numa aba que já estava aberta
-   * (nesse caso ela nunca chega a piscar, que é o comportamento desejado: não
-   * marcar o que está na frente do operador).
-   */
-  useEffect(() => {
-    for (const channelId of visibleIds) {
-      const tile = tiles.find((t) => t.channelId === channelId);
-      if (tile) watcher.markSeen(tile.profileId, tile.sessionName);
-    }
-  }, [visibleIds, tiles, watcher.markSeen, watcher.hasResponded]);
-
-  /**
    * A sessão já tem tile aberto neste browser? Escopado por (perfil, nome): o
    * MESMO nome em outra VPS é outra sessão. Alimenta a sidebar (verde = plugado)
    * e o guard anti-tile-duplicado abaixo — uma definição só para os dois.
@@ -265,7 +251,6 @@ export function App({ ws: injectedWs, createTerminal, fetchFn = fetch }: AppProp
             onCloseTile={handleCloseTile}
             getWatcherState={watcher.stateOf}
             getCoverage={coverageOf}
-            hasResponded={watcher.hasResponded}
           />
         )}
         <nav className="app__nav" aria-label="Navegação">

@@ -79,24 +79,6 @@ export interface WatcherSync {
   clearChallenge: (profileId: string, decisionId: number) => void;
   /** Último resultado de resposta da decisão (feedback de falha honesta, AC7). */
   resultFor: (profileId: string, decisionId: number) => RespondResult | undefined;
-  /**
-   * "A IA respondeu e você ainda não olhou" (2026-07-29).
-   *
-   * NÃO é um estado do watcher — é estado da ATENÇÃO do operador, e por isso
-   * vive só no cliente. O watcher sabe que o agente parou de escrever; ele não
-   * sabe (nem pode saber) se o operador leu. Derivar isso do watcher faria a
-   * marca ficar PREGADA na aba para sempre, virando um segundo `idle` — que é
-   * exatamente o ruído que o modelo precisa evitar.
-   *
-   * Nasce na transição `thinking → idle` e morre em {@link markSeen}.
-   */
-  hasResponded: (profileId: string, sessionName: string) => boolean;
-  /**
-   * Consome a marca acima. Chamado quando a sessão está num painel visível —
-   * "trazer a aba ao painel" é o ato que conta como ter visto (definido pelo
-   * operador em 2026-07-29). Idempotente: sem marca, não re-renderiza.
-   */
-  markSeen: (profileId: string, sessionName: string) => void;
 }
 
 /** Chave estável por decisão multi-VPS: (profileId, decisionId). */
@@ -129,13 +111,6 @@ export function useWatcher(ws: WsClient): WatcherSync {
   // texto (segurança: menos superfície), então a UI o preserva para reenviar
   // com o token. Ref (não state): lido dentro do handler do ws sem re-render.
   const pendingText = useRef(new Map<string, string>()).current;
-  // "Respondeu e você não viu", por perfil. Ver `hasResponded` na interface.
-  const [respondedByProfile, setRespondedByProfile] = useState<Record<string, Set<string>>>({});
-  // Último estado conhecido por sessão — a marca nasce da TRANSIÇÃO, não do
-  // estado corrente (`idle` sozinho não distingue "terminou agora" de "nunca
-  // começou"). Ref, não state: é insumo de comparação, não deve re-renderizar.
-  const lastStates = useRef<Record<string, Record<string, WatcherSessionStateName>>>({}).current;
-
   useEffect(() => {
     return ws.subscribe((message) => {
       if (message.type === 'decisions:update') {
@@ -157,22 +132,6 @@ export function useWatcher(ws: WsClient): WatcherSync {
           ...prev,
           [message.profileId]: new Set(message.sessionsHooksUnsupported ?? []),
         }));
-        // Transição `thinking → idle` = "a IA acabou de responder". Comparada
-        // ANTES de atualizar o snapshot, senão o anterior já teria sido perdido.
-        const seenBefore = lastStates[message.profileId] ?? {};
-        const justResponded = message.states
-          .filter((s) => seenBefore[s.sessionName] === 'thinking' && s.state === 'idle')
-          .map((s) => s.sessionName);
-        lastStates[message.profileId] = Object.fromEntries(
-          message.states.map((s) => [s.sessionName, s.state]),
-        );
-        if (justResponded.length > 0) {
-          setRespondedByProfile((prev) => {
-            const next = new Set(prev[message.profileId] ?? []);
-            for (const name of justResponded) next.add(name);
-            return { ...prev, [message.profileId]: next };
-          });
-        }
         setStatesByProfile((prev) => ({
           ...prev,
           [message.profileId]: Object.fromEntries(
@@ -325,24 +284,6 @@ export function useWatcher(ws: WsClient): WatcherSync {
     [],
   );
 
-  const hasResponded = useCallback(
-    (profileId: string, sessionName: string): boolean =>
-      respondedByProfile[profileId]?.has(sessionName) ?? false,
-    [respondedByProfile],
-  );
-
-  const markSeen = useCallback((profileId: string, sessionName: string): void => {
-    setRespondedByProfile((prev) => {
-      // Sem marca → devolve o MESMO objeto. Importante: o App chama isto num
-      // efeito disparado pela própria mudança de estado; sem esta saída o par
-      // efeito↔estado não convergiria.
-      if (!prev[profileId]?.has(sessionName)) return prev;
-      const next = new Set(prev[profileId]);
-      next.delete(sessionName);
-      return { ...prev, [profileId]: next };
-    });
-  }, []);
-
   const resultFor = useCallback(
     (profileId: string, decisionId: number): RespondResult | undefined =>
       results[decisionKey(profileId, decisionId)],
@@ -363,7 +304,5 @@ export function useWatcher(ws: WsClient): WatcherSync {
     challengeFor,
     clearChallenge,
     resultFor,
-    hasResponded,
-    markSeen,
   };
 }

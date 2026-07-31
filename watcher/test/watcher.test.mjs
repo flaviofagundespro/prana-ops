@@ -81,19 +81,26 @@ describe('watcher scaffolding (Story 2.1)', () => {
     expect(watcher.db.prepare('SELECT COUNT(*) AS c FROM session_state').get().c).toBe(0);
   });
 
-  it('risk ausente ou inválido vira high — na dúvida, high (AC5)', async () => {
-    await postHook({
+  it('hook estruturado repetido é idempotente e preserva os metadados mais recentes', async () => {
+    const first = await postHook({
       source: 'x',
       session_name: 'ckpt-a-claude-1',
-      decision: { summary: 'sem risco declarado' },
+      decision: { summary: 'primeira', risk: 'low', state: 'approval' },
     });
-    await postHook({
-      source: 'x',
+    const second = await postHook({
+      source: 'claude-hook',
       session_name: 'ckpt-a-claude-1',
-      decision: { summary: 'risco inválido', risk: 'medium' },
+      decision: { summary: 'segunda', risk: 'medium', state: 'confirm' },
     });
     const rows = await (await fetch(`${baseUrl}/decisions?status=pending`)).json();
-    expect(rows.map((r) => r.risk)).toEqual(['high', 'high']);
+    expect(second.body.decisionId).toBe(first.body.decisionId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      summary: 'segunda',
+      risk: 'high',
+      state: 'confirm',
+      source: 'claude-hook',
+    });
   });
 
   it('payload só de estado atualiza session_state sem criar decisão (AC3/AC5)', async () => {

@@ -49,8 +49,18 @@ const VALID_DECISION_STATUS = new Set(['pending', 'seen', 'dismissed', 'answered
 const HOOK_EVENT_STATE = {
   notification: 'waiting_for_input',
   permission_request: 'waiting_for_input',
+  user_prompt_submit: 'thinking',
+  pre_tool_use: 'thinking',
+  post_tool_use: 'thinking',
   stop: 'idle',
 };
+
+const HOOK_RESUME_EVENTS = new Set([
+  'user_prompt_submit',
+  'pre_tool_use',
+  'post_tool_use',
+  'stop',
+]);
 
 /**
  * Story 2.14/AC1 — origens possíveis de um `session_state`. Não é o mesmo
@@ -186,7 +196,7 @@ export function buildSchema(db) {
   // Story 2.14/AC1 — `source`: qual CAMADA escreveu o estado corrente. Sem essa
   // informação a precedência do F7 (hooks > heurística) é indecidível na hora da
   // escrita, e o scanner rebaixava `waiting_for_input` de hook para `idle` em
-  // segundos (11 ocorrências em `ckpt-acme-claude-1`, 2026-07-29).
+  // segundos (11 ocorrências em `ckpt-soria-claude-1`, 2026-07-29).
   //
   // MESMO padrão idempotente do `notified_at`/`state_since`. Diferença
   // importante: aqui o DEFAULT não é NULL, é `'heuristic'`. Linhas
@@ -291,11 +301,25 @@ export function createWatcher({ dbPath }) {
   // candidato já pendente para a MESMA sessão, de QUALQUER camada (hook ou
   // regex), é atualizado, nunca duplicado — é assim que o dedup cross-camada
   // exigido pela 2.3/AC5 se satisfaz sem caminho paralelo de escrita (AC6).
-  const findPendingDecision = db.prepare(
-    `SELECT * FROM decisions WHERE session_name = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`,
+  const findOpenDecision = db.prepare(
+    `SELECT * FROM decisions WHERE session_name = ? AND status IN ('pending', 'seen') ORDER BY id DESC LIMIT 1`,
+  );
+  // Story 2.18 — um hook de retomada/conclusão é evidência do agente, não um
+  // gesto da UI. Ele encerra toda decisão ainda aberta da sessão de uma vez.
+  // A própria linha em `events`, gravada antes desta atualização, é a trilha
+  // auditável que explica por que a fila foi drenada.
+  const answerOpenDecisions = db.prepare(
+    `UPDATE decisions SET status = 'answered'
+     WHERE session_name = ? AND status IN ('pending', 'seen')`,
   );
   const touchDecision = db.prepare(
     `UPDATE decisions SET summary = ?, created_at = strftime('%Y-%m-%d %H:%M:%f','now') WHERE id = ?`,
+  );
+  const replaceDecisionFromStructuredHook = db.prepare(
+    `UPDATE decisions
+     SET summary = ?, risk = ?, state = ?, source = ?,
+         created_at = strftime('%Y-%m-%d %H:%M:%f','now')
+     WHERE id = ?`,
   );
   // Story 2.4/AC4 — a classificação atualiza summary/risk/state juntos
   // (touchDecision, da 2.2/2.3, só mexe em summary — insuficiente aqui).
@@ -334,17 +358,42 @@ export function createWatcher({ dbPath }) {
    * candidato a decisão, usada tanto pelo hook (`notification`) quanto pelo
    * scanner de regex (2.3): zero caminho paralelo de escrita no banco.
    */
-  function ingestCandidate({ sessionName, source, summary, risk, stateSource = STATE_SOURCE_HEURISTIC }) {
+  function ingestCandidate({
+    sessionName,
+    source,
+    summary,
+    risk,
+    decisionState = 'waiting_for_input',
+    replaceMetadata = false,
+    triggerAutomation = true,
+    stateSource = STATE_SOURCE_HEURISTIC,
+  }) {
     if (!isCkptSession(sessionName)) return null;
     const finalSummary = summary && summary.trim() ? summary.trim() : HOOK_DECISION_PLACEHOLDER;
-    const existing = findPendingDecision.get(sessionName);
+    const existing = findOpenDecision.get(sessionName);
     let decisionId;
     let created = false;
     if (existing) {
-      touchDecision.run(finalSummary, existing.id);
+      if (replaceMetadata) {
+        replaceDecisionFromStructuredHook.run(
+          finalSummary,
+          normalizeRisk(risk),
+          decisionState,
+          source,
+          existing.id,
+        );
+      } else {
+        touchDecision.run(finalSummary, existing.id);
+      }
       decisionId = existing.id;
     } else {
-      const result = insertDecision.run(sessionName, finalSummary, normalizeRisk(risk), 'waiting_for_input', source);
+      const result = insertDecision.run(
+        sessionName,
+        finalSummary,
+        normalizeRisk(risk),
+        decisionState,
+        source,
+      );
       decisionId = Number(result.lastInsertRowid);
       created = true;
     }
@@ -356,13 +405,13 @@ export function createWatcher({ dbPath }) {
     // Story 2.4/AC1 — só candidatos GENUINAMENTE NOVOS disparam classificação
     // (não a cada touch de um pendente já existente); fire-and-forget, nunca
     // bloqueia quem chamou ingestCandidate (hook ou scanner).
-    if (created && classifierRef) {
+    if (created && triggerAutomation && classifierRef) {
       void classifierRef.maybeClassify({ sessionName, decisionId });
     }
     // Story 2.5/AC1 — mesma disciplina: só candidato NOVO dispara notificação
     // imediata (fire-and-forget); a varredura periódica do notifier (AC4)
     // cobre o caso de crash entre criação e envio.
-    if (created && notifierRef) {
+    if (created && triggerAutomation && notifierRef) {
       void notifierRef.maybeNotify({ sessionName, decisionId });
     }
     return decisionId;
@@ -381,19 +430,11 @@ export function createWatcher({ dbPath }) {
     if (!isCkptSession(sessionName)) return;
     const existing = getSessionState.get(sessionName);
     if (existing && existing.updated_at > olderThan) return;
-    // Story 2.14/AC2 — a guarda acima protege por UM ciclo (é uma defesa contra
-    // corrida de escrita, e continua valendo). Ela NÃO resolve precedência entre
-    // camadas: no ciclo seguinte a `boundary` já é mais recente que o
-    // `updated_at` do hook e o scanner sobrescrevia. Para uma TUI de tela cheia
-    // o scanner sempre conclui `idle` (nenhum padrão casa numa tela que se
-    // repinta), então o efeito era rebaixar a dor em ~6s.
-    //
-    // Só `waiting_for_input` é blindado, de propósito. Blindar todo estado de
-    // hook mataria o `thinking` dessas sessões: depois de um `stop` (hook →
-    // `idle`) ninguém mais avisa que o agente voltou a trabalhar — quem detecta
-    // isso é o crescimento do log, ou seja, a Camada 2. O sinal azul que o
-    // operador usa vem daí.
-    if (existing && existing.source === STATE_SOURCE_HOOK && existing.state === 'waiting_for_input') return;
+    // Story 2.18 — hooks agora cobrem o ciclo inteiro (entrada, ferramentas,
+    // espera e parada). Enquanto a origem corrente for hook, bytes de repaint,
+    // attach e mouse jamais podem reclassificar a sessão. A autoridade só muda
+    // por outro hook ou por uma ação explícita na fila legada.
+    if (existing && existing.source === STATE_SOURCE_HOOK) return;
     upsertState.run(sessionName, state, STATE_SOURCE_HEURISTIC);
   }
 
@@ -485,19 +526,25 @@ export function createWatcher({ dbPath }) {
           upsertState.run(sessionName, hookState, STATE_SOURCE_HOOK);
         }
 
+        // O hook prova retomada ou conclusão. Drenar aqui evita a fila fantasma
+        // sem depender de abrir aba, focar terminal ou clicar no cockpit.
+        if (typeof payload.event === 'string' && HOOK_RESUME_EVENTS.has(payload.event)) {
+          answerOpenDecisions.run(sessionName);
+        }
+
         // Indício de decisão = objeto `decision` com summary não-vazio.
         const d = payload.decision;
         if (d && typeof d === 'object' && typeof d.summary === 'string' && d.summary.trim()) {
-          const result = insertDecision.run(
+          decisionId = ingestCandidate({
             sessionName,
-            d.summary.trim(),
-            normalizeRisk(d.risk),
-            typeof d.state === 'string' ? d.state : null,
             source,
-          );
-          decisionId = Number(result.lastInsertRowid);
-          // Sessão com decisão pendente está, por definição, esperando input.
-          upsertState.run(sessionName, 'waiting_for_input', STATE_SOURCE_HOOK);
+            summary: d.summary,
+            risk: d.risk,
+            decisionState: typeof d.state === 'string' ? d.state : null,
+            replaceMetadata: true,
+            triggerAutomation: false,
+            stateSource: STATE_SOURCE_HOOK,
+          });
         } else if (hookState === 'waiting_for_input') {
           // Story 2.2/AC6+AC7 — evidência de hook é alta confiança, não
           // certeza (PRD F4/Camada 1): sintetiza candidato `risk=high` pela
@@ -565,7 +612,7 @@ export function createWatcher({ dbPath }) {
       // `seen` não libera nada: ver não é responder.
       const decision = getDecision.get(id);
       if ((body.status === 'answered' || body.status === 'dismissed') && decision) {
-        if (!findPendingDecision.get(decision.session_name)) {
+        if (!findOpenDecision.get(decision.session_name)) {
           releaseStateLock.run(decision.session_name);
         }
       }

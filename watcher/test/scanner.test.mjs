@@ -14,6 +14,7 @@ import {
   matchLongQuestion,
   matchStalledPrompt,
   splitLines,
+  CARRY_MAX_BYTES,
   hashLines,
   listCkptLogFiles,
   createScanner,
@@ -75,6 +76,15 @@ describe('funções puras — split incremental e hash (AC1, AC5)', () => {
     const { lines, leftover } = splitLines('parcial-sem-newl', 'ine\nresto');
     expect(lines).toEqual(['parcial-sem-newline']);
     expect(leftover).toBe('resto');
+  });
+
+  it('Story 2.18: TUI sem newline mantém carry com teto explícito', () => {
+    const repaint = '\x1b[2J\x1b[H✻ Ideating…'.repeat(CARRY_MAX_BYTES);
+    const { lines, leftover } = splitLines('', repaint);
+    expect(lines).toEqual([]);
+    expect(Buffer.byteLength(leftover, 'utf8')).toBeLessThanOrEqual(CARRY_MAX_BYTES);
+    expect(leftover).toContain('✻ Ideating…');
+    expect(repaint.endsWith(leftover)).toBe(true);
   });
 
   it('hashLines ignora ANSI/espaços e vazias — mesmo prompt com cores diferentes gera mesmo hash', () => {
@@ -204,14 +214,51 @@ describe('scanner integrado (watcher real em memória + fs real)', () => {
     await watcher.stop();
   });
 
-  it('AC7: output fluindo sem padrão de decisão vira thinking', () => {
+  it('Story 2.18: output com newlines sem padrão não inventa thinking', () => {
     const session = 'ckpt-scan-5';
     writeFileSync(logPath(session), '');
     const scanner = createScanner({ watcher, isCkptSession, logsDir, config: cfg });
     scanner.scanOnce();
     appendFileSync(logPath(session), 'gerando código...\nmais uma linha...\n');
     scanner.scanOnce();
-    expect(stateOf(session).state).toBe('thinking');
+    expect(stateOf(session)).toBeUndefined();
+    expect(pending()).toHaveLength(0);
+  });
+
+  it('Story 2.18: repaint de attach com muitas linhas não inventa thinking', () => {
+    const session = 'ckpt-scan-attach-lines';
+    writeFileSync(logPath(session), '');
+    const scanner = createScanner({ watcher, isCkptSession, logsDir, config: cfg });
+    scanner.scanOnce();
+
+    const staticScreen = Array.from(
+      { length: 1000 },
+      (_, n) => `\x1b[${n % 40 + 1};1Hlinha estática ${n % 40}\n`,
+    ).join('');
+    appendFileSync(logPath(session), `\x1b[2J\x1b[H${staticScreen}`);
+    scanner.scanOnce();
+
+    expect(stateOf(session)).toBeUndefined();
+    expect(pending()).toHaveLength(0);
+  });
+
+  it('Story 2.18: repaint ANSI/attach/mouse sem newline não inventa thinking', () => {
+    const session = 'ckpt-scan-tui-neutral';
+    writeFileSync(logPath(session), '');
+    const scanner = createScanner({ watcher, isCkptSession, logsDir, config: cfg });
+    scanner.scanOnce();
+
+    appendFileSync(
+      logPath(session),
+      [
+        '\x1b[2J\x1b[H✻ Ideating… (1m 37s)',
+        '\x1b[?1000h\x1b[<35;42;12M',
+        '\x1b[Hmesma tela depois do attach',
+      ].join(''),
+    );
+    scanner.scanOnce();
+
+    expect(stateOf(session)).toBeUndefined();
     expect(pending()).toHaveLength(0);
   });
 

@@ -52,13 +52,6 @@ export interface GridControlsProps {
    * "o que está acontecendo", a outra diz "eu estou mesmo olhando".
    */
   getCoverage?: (profileId: string, sessionName: string) => CoverageBadge | undefined;
-  /**
-   * "Respondeu e você não olhou" (2026-07-29). Marca de FORMA (um ponto antes
-   * do nome, como e-mail não lido), nunca de cor: verde/azul/âmbar já estão
-   * comprometidos e o âmbar do waiting precisa seguir sendo o mais saliente.
-   * Só faz sentido em aba OCULTA — na visível, o operador já está vendo.
-   */
-  hasResponded?: (profileId: string, sessionName: string) => boolean;
 }
 
 /** Cobertura já derivada pelo App (a aba não deriva nada por conta própria). */
@@ -79,7 +72,6 @@ export function GridControls({
   onCloseTile,
   getWatcherState,
   getCoverage,
-  hasResponded,
 }: GridControlsProps): JSX.Element {
   // Com um único painel visível a numeração é ruído (só existe o "1") — o
   // número aparece a partir de 2 painéis, mesma regra do destaque de ativo
@@ -129,7 +121,11 @@ export function GridControls({
             // "terminou". Visível = preenchimento azul; oculta = moldura azul.
             // O fundo sólido segue exclusivo da visível, então a cor continua
             // dizendo "onde estou" — o que muda é a borda, não o preenchimento.
-            if (watcherState === 'thinking') classes.push('grid-tab--thinking');
+            // Story 2.18 — `thinking` só pinta quando a cobertura é confiável.
+            // Mostrar azul junto de `⃠ no_hooks` era uma contradição e permitia
+            // que repaint heurístico parecesse trabalho real. Waiting continua
+            // saliente mesmo sem cobertura: na dúvida, não esconder uma dor.
+            if (watcherState === 'thinking' && !uncovered) classes.push('grid-tab--thinking');
             if (watcherState === 'waiting_for_input') classes.push('grid-tab--waiting');
             return (
               <span key={t.channelId} className="grid-tab-wrap">
@@ -151,18 +147,6 @@ export function GridControls({
                   {isVisible && showSlotNumbers && (
                     <span className="grid-tab-slot" aria-label={`painel ${slotIndex + 1}`}>
                       {slotIndex + 1}
-                    </span>
-                  )}
-                  {/* "Respondeu e você não olhou" (2026-07-29). Só em aba
-                      OCULTA: na visível o operador já está vendo, e a marca
-                      seria ruído. Forma, não cor — a paleta está comprometida. */}
-                  {!isVisible && hasResponded?.(t.profileId, t.sessionName) && (
-                    <span
-                      className="grid-tab-responded"
-                      aria-label="respondeu — você ainda não viu"
-                      title="a IA respondeu enquanto esta aba estava oculta"
-                    >
-                      ●
                     </span>
                   )}
                   {/* Story 2.9 (AC6): ausência de sinal na aba. Vem ANTES do

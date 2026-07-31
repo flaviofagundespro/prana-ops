@@ -24,6 +24,25 @@ import crypto from 'node:crypto';
 const TAIL_MAX = 50;
 
 /**
+ * Story 2.18/AC7 — teto do fragmento sem newline.
+ *
+ * TUIs de tela cheia podem repintar por horas usando apenas escapes de cursor,
+ * sem `\n`. Antes, `carry` acumulava tudo (~43 MB/dia/sessão medidos em campo).
+ * Guardar os 64 KiB finais preserva fronteiras úteis de linha sem permitir
+ * crescimento ilimitado. O volume de bytes continua NÃO sendo estado.
+ */
+export const CARRY_MAX_BYTES = 64 * 1024;
+
+/** Mantém o sufixo UTF-8 sem cortar no meio de um code point. */
+function trimUtf8Tail(value, maxBytes) {
+  const encoded = Buffer.from(value, 'utf8');
+  if (encoded.byteLength <= maxBytes) return value;
+  let start = encoded.byteLength - maxBytes;
+  while (start < encoded.byteLength && (encoded[start] & 0xc0) === 0x80) start += 1;
+  return encoded.subarray(start).toString('utf8');
+}
+
+/**
  * Remove sequências de escape ANSI (cores/cursor/modos privados como
  * bracketed-paste `\x1B[?2004h`) — pipe-pane captura terminal cru. O `?`
  * opcional cobre sequências de "private mode" (achado real em smoke E2E:
@@ -87,10 +106,11 @@ export function matchStalledPrompt(tailLines, minLongMsgLines) {
  * em linhas completas e devolve o restante parcial (sem newline) como novo
  * `carry` — padrão de leitura incremental sem perder fronteiras de linha.
  */
-export function splitLines(carry, chunk) {
+export function splitLines(carry, chunk, maxCarryBytes = CARRY_MAX_BYTES) {
   const combined = carry + chunk;
   const parts = combined.split('\n');
-  const leftover = parts.pop() ?? '';
+  const partial = parts.pop() ?? '';
+  const leftover = trimUtf8Tail(partial, maxCarryBytes);
   return { lines: parts, leftover };
 }
 
@@ -213,10 +233,12 @@ export function createScanner({ watcher, isCkptSession, logsDir, config }) {
 
         if (patternId) {
           raiseCandidate(sessionName, patternId, matchedLine, st, asOf, boundary);
-        } else {
-          // AC7 — output fluindo sem padrão de decisão.
-          watcher.applyHeuristicState({ sessionName, state: 'thinking', olderThan: boundary });
         }
+        // Story 2.18 — saída do pipe-pane NÃO prova trabalho. Attach, resize e
+        // mouse podem redesenhar uma TUI parada com centenas de newlines (caso
+        // real: ckpt-azure-claude-2, 2026-07-31 19:18). Sem padrão de decisão,
+        // o scanner apenas atualiza seu tail; `thinking` vem exclusivamente de
+        // hook nativo. Ausência de hook é exibida como ⃠, nunca como azul.
       }
     } else {
       // Delta vazio: só age depois de STALL_MS de silêncio (AC4).
@@ -232,8 +254,11 @@ export function createScanner({ watcher, isCkptSession, logsDir, config }) {
       }
     }
 
-    // A fronteira deste ciclo vira o "último scan" para a PRÓXIMA chamada.
-    st.boundary = asOf;
+    // A fronteira deste ciclo vira o "último scan CONCLUÍDO" para a próxima
+    // chamada. Capturar no início (`asOf`) fazia a própria escrita heurística
+    // deste ciclo parecer mais nova que a fronteira sob carga e bloquear a
+    // transição seguinte (thinking → idle) por um tick extra/flaky.
+    st.boundary = watcher.now();
   }
 
   function raiseCandidate(sessionName, patternId, matchedLine, st, asOf, boundary) {

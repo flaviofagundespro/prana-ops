@@ -49,13 +49,21 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as unknown as Response;
 }
 
-/** Fetch mock: /api/profiles returns `profiles`; /sessions returns []. */
-function makeFetch(profiles: unknown[]): typeof fetch {
+/**
+ * Fetch mock. Requisições que o teste não observa ficam pendentes: resolver
+ * imediatamente disparava effects assíncronos depois da asserção/cleanup e
+ * escondia regressões reais numa enxurrada de warnings de `act(...)`.
+ */
+type FetchMockOptions = { pendingProfiles?: boolean };
+
+function makeFetch(
+  profiles: unknown[],
+  { pendingProfiles = profiles.length === 0 }: FetchMockOptions = {},
+): typeof fetch {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url === '/api/profiles') return jsonResponse(profiles);
-    if (url.endsWith('/sessions')) return jsonResponse([]);
-    return jsonResponse([]);
+    if (url === '/api/profiles' && !pendingProfiles) return jsonResponse(profiles);
+    return new Promise<Response>(() => {});
   }) as unknown as typeof fetch;
 }
 
@@ -223,7 +231,8 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
 
   it('empty profile list does not break the form (AC6)', async () => {
     const ws = makeFakeWs();
-    render(<App ws={ws} createTerminal={fakeTerminal} fetchFn={makeFetch([])} />);
+    render(<App ws={ws} createTerminal={fakeTerminal} fetchFn={makeFetch([], { pendingProfiles: false })} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: '+ Nova sessão' })).toBeEnabled());
     // Falls back to MOCK_PROFILES so the form (no diálogo) stays usable.
     fireEvent.click(screen.getByRole('button', { name: '+ Nova sessão' }));
     expect(screen.getByRole('form', { name: 'Criar sessão' })).toBeInTheDocument();
@@ -334,7 +343,7 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
     expect(tab?.className).toContain('grid-tab--thinking');
   });
 
-  it('thinking NÃO pinta aba oculta — a cor precisa seguir dizendo "onde estou" (2026-07-29)', () => {
+  it('thinking visível preenche e thinking oculta mantém moldura azul (Story 2.18)', () => {
     const ws = makeFakeWs();
     render(<App ws={ws} createTerminal={fakeTerminal} fetchFn={makeFetch([])} />);
 
@@ -364,7 +373,7 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
     expect(visible.length).toBeLessThan(tabs.length);
   });
 
-  it('marca de "respondeu" nasce em thinking→idle e só em aba OCULTA (2026-07-29)', () => {
+  it('thinking→idle não cria estado local de lido/concluído (Story 2.18)', () => {
     const ws = makeFakeWs();
     render(<App ws={ws} createTerminal={fakeTerminal} fetchFn={makeFetch([])} />);
 
@@ -385,10 +394,7 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
       });
     });
 
-    expect(screen.queryAllByLabelText('respondeu — você ainda não viu')).toHaveLength(0);
-
     act(() => {
-      // Todas terminam. Só a oculta pode marcar — as visíveis o operador já vê.
       ws.push({
         type: 'sessions:state',
         profileId: '1',
@@ -401,35 +407,30 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
       });
     });
 
-    expect(screen.getAllByLabelText('respondeu — você ainda não viu')).toHaveLength(1);
+    expect(screen.queryByLabelText(/respondeu|não viu|concluído/i)).not.toBeInTheDocument();
+    expect(screen.getAllByLabelText('estado: idle')).toHaveLength(5);
   });
 
-  it('trazer a aba ao painel CONSOME a marca de respondeu (2026-07-29)', () => {
+  it('⃠ no_hooks bloqueia azul heurístico mesmo quando o estado diz thinking (Story 2.18)', () => {
     const ws = makeFakeWs();
     render(<App ws={ws} createTerminal={fakeTerminal} fetchFn={makeFetch([])} />);
 
     act(() => {
-      for (let n = 1; n <= 5; n += 1) {
-        ws.push({ type: 'session:created', profileId: '1', sessionName: `ckpt-a-claude-${n}`, channelId: `p1:${n}`, project: '', label: '' });
-      }
+      ws.push({ type: 'session:created', profileId: '1', sessionName: 'ckpt-legado-codex-1', channelId: 'p1:1', project: '', label: '' });
       ws.push({
-        type: 'sessions:state', profileId: '1', watcherAvailable: true,
-        states: [{ sessionName: 'ckpt-a-claude-5', state: 'thinking', updatedAt: '2026-07-16 11:00:00.000' }],
-      });
-      ws.push({
-        type: 'sessions:state', profileId: '1', watcherAvailable: true,
-        states: [{ sessionName: 'ckpt-a-claude-5', state: 'idle', updatedAt: '2026-07-16 11:00:05.000' }],
+        type: 'sessions:state',
+        profileId: '1',
+        watcherAvailable: true,
+        sessionsWithoutHooks: ['ckpt-legado-codex-1'],
+        states: [
+          { sessionName: 'ckpt-legado-codex-1', state: 'thinking', updatedAt: '2026-07-31 22:29:58.448' },
+        ],
       });
     });
 
-    const mark = screen.getByLabelText('respondeu — você ainda não viu');
-    const tab = mark.closest('button') as HTMLButtonElement;
-    act(() => {
-      tab.click();
-    });
-
-    // Entrou no painel = foi vista. A marca não volta sozinha.
-    expect(screen.queryAllByLabelText('respondeu — você ainda não viu')).toHaveLength(0);
+    const tab = screen.getByLabelText('estado: thinking').closest('button');
+    expect(screen.getByLabelText(/^sem sinal:/)).toBeInTheDocument();
+    expect(tab?.className).not.toContain('grid-tab--thinking');
   });
 
   it('waiting é a exceção: pinta MESMO oculta (2026-07-29)', () => {

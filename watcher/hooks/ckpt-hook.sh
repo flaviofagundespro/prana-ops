@@ -2,7 +2,8 @@
 # Prana OPS — hook nativo (Claude Code / Codex) -> watcher POST /hook (Story 2.2).
 #
 # Uso: ckpt-hook.sh <event> [source]
-#   event:  notification | stop (outros valores sao aceitos e apenas auditados)
+#   event: notification | permission_request | user_prompt_submit |
+#          pre_tool_use | post_tool_use | stop
 #   source: claude-hook (default) | codex-notify | ...
 #
 # Invariantes (nao relaxar):

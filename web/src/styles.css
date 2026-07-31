@@ -722,23 +722,6 @@ body {
   animation: ckpt-waiting-pulse 1.6s ease-in-out infinite;
 }
 
-/*
- * "Respondeu e você não olhou" (2026-07-29) — ponto de não-lido, como e-mail.
- *
- * FORMA, não cor: verde é "estou aqui", azul é "pensando", âmbar é "te espera".
- * Uma quarta cor disputaria com o âmbar, que precisa seguir vencendo a tela.
- * Branco quase puro + peso: salta do cinza da aba oculta sem entrar na paleta
- * semântica. Some no instante em que a aba entra num painel — a marca é da
- * ATENÇÃO do operador, não do agente, e por isso tem que poder ser consumida.
- */
-.grid-tab-responded {
-  margin-right: 0.3rem;
-  color: #f5f5f5;
-  font-size: 0.7rem;
-  font-weight: 700;
-  vertical-align: middle;
-}
-
 /* Story 2.6 (AC6) — indicador de estado nas abas do grid. */
 .grid-tab-state {
   margin-right: 0.3rem;

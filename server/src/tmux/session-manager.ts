@@ -87,6 +87,115 @@ export const QUERY_DELIMITER = '___CKPT_DONE___';
 export const LOG_DIR = '~/.cockpit/logs';
 
 /**
+ * Probe executado na VPS para validar a cobertura REAL dos hooks do Codex.
+ *
+ * O Codex não confia apenas na presença de uma chave em `config.toml`: o
+ * `trusted_hash` precisa ser o SHA-256 da definição normalizada atual. Este
+ * script reproduz essa normalização para os cinco hooks do cockpit e só retorna
+ * `1` quando cada comando está habilitado e seu hash ainda é válido.
+ *
+ * Mantido como JavaScript autocontido porque roda no host remoto (onde o
+ * servidor TypeScript não está instalado). Exportado para o teste de regressão.
+ */
+export const CODEX_HOOK_TRUST_PROBE = String.raw`
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+
+const canonical = (value) => {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+};
+
+const hash = (value) => 'sha256:' + crypto
+  .createHash('sha256')
+  .update(JSON.stringify(canonical(value)))
+  .digest('hex');
+
+const parseHookStates = (toml) => {
+  const states = new Map();
+  let current = null;
+  for (const line of toml.split(/\r?\n/)) {
+    const section = line.match(/^\[hooks\.state\."([^"]+)"\]\s*$/);
+    if (section) {
+      current = { key: section[1], enabled: true, trustedHash: null };
+      states.set(current.key, current);
+      continue;
+    }
+    if (line.startsWith('[')) {
+      current = null;
+      continue;
+    }
+    if (!current) continue;
+    const trusted = line.match(/^\s*trusted_hash\s*=\s*"([^"]+)"\s*$/);
+    if (trusted) current.trustedHash = trusted[1];
+    if (/^\s*enabled\s*=\s*false\s*$/.test(line)) current.enabled = false;
+  }
+  return states;
+};
+
+try {
+  const home = process.env.CKPT_CODEX_HOME || process.env.HOME;
+  if (!home) throw new Error('HOME unavailable');
+  const hooksPath = home + '/.codex/hooks.json';
+  const hooks = JSON.parse(fs.readFileSync(hooksPath, 'utf8')).hooks || {};
+  const states = parseHookStates(fs.readFileSync(home + '/.codex/config.toml', 'utf8'));
+  const definitions = [
+    ['PermissionRequest', 'permission_request', true, false],
+    ['UserPromptSubmit', 'user_prompt_submit', false, true],
+    ['PreToolUse', 'pre_tool_use', true, true],
+    ['PostToolUse', 'post_tool_use', true, true],
+    ['Stop', 'stop', false, false],
+  ];
+
+  const eventTrusted = ([jsonEvent, eventName, keepsMatcher, keepsContextLimit]) => {
+    const groups = Array.isArray(hooks[jsonEvent]) ? hooks[jsonEvent] : [];
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+      const group = groups[groupIndex] || {};
+      const handlers = Array.isArray(group.hooks) ? group.hooks : [];
+      for (let handlerIndex = 0; handlerIndex < handlers.length; handlerIndex += 1) {
+        const handler = handlers[handlerIndex] || {};
+        const expectedCommand = home + '/.cockpit/ckpt-hook.sh ' + eventName + ' codex-hook';
+        if (handler.type !== 'command' || handler.command !== expectedCommand || handler.async === true) continue;
+
+        const timeoutValue = handler.timeout == null ? 600 : Number(handler.timeout);
+        if (!Number.isSafeInteger(timeoutValue) || timeoutValue < 0) continue;
+        const normalizedHandler = {
+          type: 'command',
+          command: handler.command,
+          timeout: Math.max(1, timeoutValue),
+          async: false,
+        };
+        if (typeof handler.statusMessage === 'string') {
+          normalizedHandler.statusMessage = handler.statusMessage;
+        }
+        if (keepsContextLimit && handler.additionalContextLimit != null) {
+          const limit = Number(handler.additionalContextLimit);
+          if (!Number.isSafeInteger(limit) || limit < 0) continue;
+          if (limit !== 2500) normalizedHandler.additionalContextLimit = limit;
+        }
+
+        const identity = { event_name: eventName, hooks: [normalizedHandler] };
+        if (keepsMatcher && typeof group.matcher === 'string') identity.matcher = group.matcher;
+        const key = hooksPath + ':' + eventName + ':' + groupIndex + ':' + handlerIndex;
+        const state = states.get(key);
+        if (state && state.enabled && state.trustedHash === hash(identity)) return true;
+      }
+    }
+    return false;
+  };
+
+  process.stdout.write(definitions.every(eventTrusted) ? '1' : '0');
+} catch {
+  process.stdout.write('0');
+}
+`;
+
+const CODEX_HOOK_TRUST_PROBE_BASE64 = Buffer.from(CODEX_HOOK_TRUST_PROBE, 'utf8').toString('base64');
+
+/**
  * Rótulo de exibição inicial de uma sessão nova: "tema-n" (ex.: "auto-1").
  * Decisão de produto (2026-07-15): a identidade do trabalho é projeto+tema —
  * o projeto já é o cabeçalho do grupo na sidebar (não se repete no label) e o
@@ -456,7 +565,7 @@ export class TmuxSessionManager extends EventEmitter {
         profileId: Number(profileId),
         project: parts?.projeto ?? null,
         // Story 2.12/AC4: `agent` NÃO vem mais do nome. Era exatamente daqui
-        // que a mentira nascia — `ckpt-acme-claude-1` gravava agent='claude'
+        // que a mentira nascia — `ckpt-soria-claude-1` gravava agent='claude'
         // enquanto o pane rodava Codex. Sem fonte confiável na adoção, fica
         // null; o agente REAL é lido do processo no pane (query da 2.11).
         agent: null,
@@ -627,7 +736,12 @@ export class TmuxSessionManager extends EventEmitter {
     // `claude` / `codex` / `other` / `-` (sem agente), detectado pela cmdline
     // do processo — NUNCA pelo nome da sessão, que comprovadamente mente.
     const command =
-      `CH=$(grep -q 'ckpt-hook.sh' ~/.claude/settings.json 2>/dev/null && echo 1 || echo 0); ` +
+      `CH=0; ` +
+      `if grep -q 'ckpt-hook.sh user_prompt_submit claude-hook' ~/.claude/settings.json 2>/dev/null ` +
+      `&& grep -q 'ckpt-hook.sh pre_tool_use claude-hook' ~/.claude/settings.json 2>/dev/null ` +
+      `&& grep -q 'ckpt-hook.sh post_tool_use claude-hook' ~/.claude/settings.json 2>/dev/null ` +
+      `&& grep -q 'ckpt-hook.sh notification claude-hook' ~/.claude/settings.json 2>/dev/null ` +
+      `&& grep -q 'ckpt-hook.sh stop claude-hook' ~/.claude/settings.json 2>/dev/null; then CH=1; fi; ` +
       `CM=$(cat ~/.cockpit/hooks-installed-at.claude 2>/dev/null || cat ~/.cockpit/hooks-installed-at 2>/dev/null || echo -); ` +
       `DM=$(cat ~/.cockpit/hooks-installed-at.codex 2>/dev/null || echo -); ` +
       `DX=0; ` +
@@ -635,8 +749,9 @@ export class TmuxSessionManager extends EventEmitter {
       // executa nada. O trust vive em `~/.codex/config.toml`, seção `[hooks.state]`,
       // chaveado por `<arquivo>:<evento>:<i>:<j>` + `trusted_hash` do comando.
       // Sem essa segunda checagem o cockpit afirmaria cobertura que não existe.
-      `if [ "$DM" != "-" ] && grep -q 'ckpt-hook.sh.*permission_request.*codex-hook' ~/.codex/hooks.json 2>/dev/null ` +
-      `&& grep -q 'hooks.json:permission_request' ~/.codex/config.toml 2>/dev/null; then DX=1; fi; ` +
+      `if [ "$DM" != "-" ]; then ` +
+      `DX=$(printf %s '${CODEX_HOOK_TRUST_PROBE_BASE64}' | base64 -d | node 2>/dev/null); ` +
+      `[ "$DX" = "1" ] || DX=0; fi; ` +
       `echo "HOOK claude $CM $CH"; echo "HOOK codex $DM $DX"; ` +
       `tmux list-panes -a -F '#{session_name} #{pane_pid}' | while read S P; do ` +
       `C=$(pgrep -P $P | head -1); ` +
@@ -813,7 +928,7 @@ export interface HookCoverage {
  *   `<sessionName> <epoch|-> <kind>`  início do agente + qual agente é
  *
  * `kind` vem da **cmdline do processo**, nunca do nome da sessão — foi
- * justamente o nome ter mentido (`ckpt-acme-claude-1` rodando Codex) que
+ * justamente o nome ter mentido (`ckpt-soria-claude-1` rodando Codex) que
  * originou a Story 2.12.
  *
  * Separar os dois casos importa porque o conselho é oposto:

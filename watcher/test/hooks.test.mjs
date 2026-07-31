@@ -78,6 +78,17 @@ describe('mapeamento evento→estado (Story 2.2, AC5)', () => {
     expect(st.state).toBe('waiting_for_input');
   });
 
+  it.each(['user_prompt_submit', 'pre_tool_use', 'post_tool_use'])(
+    'event=%s vira thinking',
+    async (event) => {
+      await postHook({ source: 'codex-hook', event, session_name: `ckpt-h-${event}` });
+      const st = watcher.db
+        .prepare('SELECT state, source FROM session_state WHERE session_name = ?')
+        .get(`ckpt-h-${event}`);
+      expect(st).toEqual({ state: 'thinking', source: 'hook' });
+    },
+  );
+
   it('event=stop vira idle e NÃO cria decisão', async () => {
     await postHook({ source: 'claude-hook', event: 'stop', session_name: 'ckpt-h-claude-1' });
     const st = watcher.db
@@ -92,6 +103,54 @@ describe('mapeamento evento→estado (Story 2.2, AC5)', () => {
     expect(body.allowed).toBe(false);
     expect(watcher.db.prepare('SELECT COUNT(*) AS c FROM session_state').get().c).toBe(0);
     expect(watcher.db.prepare('SELECT COUNT(*) AS c FROM decisions').get().c).toBe(0);
+  });
+});
+
+describe('retomada comprovada pelo hook (Story 2.18)', () => {
+  it.each(['user_prompt_submit', 'pre_tool_use', 'post_tool_use', 'stop'])(
+    '%s drena pending e seen sem depender da UI',
+    async (event) => {
+      const session = `ckpt-resume-${event}`;
+      const first = await postHook({ source: 'codex-hook', event: 'permission_request', session_name: session });
+      watcher.db
+        .prepare(`UPDATE decisions SET status = 'seen' WHERE id = ?`)
+        .run(first.body.decisionId);
+      watcher.db
+        .prepare(`INSERT INTO decisions (session_name, summary, risk, state, status, source)
+                  VALUES (?, 'segundo pedido', 'high', 'waiting_for_input', 'pending', 'codex-hook')`)
+        .run(session);
+
+      await postHook({ source: 'codex-hook', event, session_name: session });
+
+      expect(watcher.db
+        .prepare(`SELECT status FROM decisions WHERE session_name = ? ORDER BY id`)
+        .all(session))
+        .toEqual([{ status: 'answered' }, { status: 'answered' }]);
+      expect(await pendingDecisions()).toHaveLength(0);
+    },
+  );
+
+  it('retomada repetida é idempotente e fica auditada', async () => {
+    const session = 'ckpt-resume-idempotente';
+    await postHook({ source: 'claude-hook', event: 'notification', session_name: session });
+    await postHook({ source: 'claude-hook', event: 'user_prompt_submit', session_name: session });
+    await postHook({ source: 'claude-hook', event: 'user_prompt_submit', session_name: session });
+
+    expect(watcher.db
+      .prepare(`SELECT status FROM decisions WHERE session_name = ? ORDER BY id`)
+      .all(session))
+      .toEqual([{ status: 'answered' }]);
+    expect(watcher.db
+      .prepare(`SELECT json_extract(payload, '$.event') AS event
+                FROM events
+                WHERE json_extract(payload, '$.session_name') = ?
+                ORDER BY id`)
+      .all(session))
+      .toEqual([
+        { event: 'notification' },
+        { event: 'user_prompt_submit' },
+        { event: 'user_prompt_submit' },
+      ]);
   });
 });
 

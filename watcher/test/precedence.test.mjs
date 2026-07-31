@@ -151,21 +151,24 @@ describe('Story 2.14 — a Camada 1 vence a Camada 2', () => {
     expect(stateOf(session).source).toBe(STATE_SOURCE_HOOK);
   });
 
-  it('AC3: depois do `stop`, a Camada 2 volta a detectar `thinking`', async () => {
+  it('Story 2.18: depois do `stop`, bytes não inventam `thinking`', async () => {
     const session = 'ckpt-acme-claude-1';
     await postHook({ source: 'codex', session_name: session, event: 'permission_request' });
     await postHook({ source: 'codex', session_name: session, event: 'stop' });
 
-    // O agente voltou a trabalhar. NENHUM hook avisa isso — quem detecta é o
-    // crescimento do log. Blindar todo estado de hook mataria o sinal azul que o
-    // operador usa para saber que a sessão está viva.
+    // Crescimento do log também acontece por attach, mouse e repaint.
     watcher.applyHeuristicState({
       sessionName: session,
       state: 'thinking',
       olderThan: nextCycleBoundary(),
     });
+    expect(stateOf(session).state).toBe('idle');
+    expect(stateOf(session).source).toBe(STATE_SOURCE_HOOK);
+
+    // A próxima entrada real do agente é que acende o azul.
+    await postHook({ source: 'codex', session_name: session, event: 'user_prompt_submit' });
     expect(stateOf(session).state).toBe('thinking');
-    expect(stateOf(session).source).toBe(STATE_SOURCE_HEURISTIC);
+    expect(stateOf(session).source).toBe(STATE_SOURCE_HOOK);
   });
 
   it('AC3: responder pela fila devolve a autoridade à Camada 2', async () => {

@@ -20,9 +20,15 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   TmuxSessionManager,
   AGENT_COMMANDS,
+  CODEX_HOOK_TRUST_PROBE,
   QUERY_DELIMITER,
   parseSessionList,
   parsePipeStates,
@@ -184,8 +190,8 @@ describe('TmuxSessionManager', () => {
 
       // Story 2.12: sem assunto, cai para `geral-n` — não para o CLI.
       // Story 2.12: sem agenda, nome E label caem em `geral` — nunca no CLI.
-      mgr.createOrAttach(String(profileId), 'acme', 'claude', 2);
-      expect(metadata.getByProfileAndSessionName(profileId, 'ckpt-acme-geral-2')?.label).toBe('geral-2');
+      mgr.createOrAttach(String(profileId), 'soria', 'claude', 2);
+      expect(metadata.getByProfileAndSessionName(profileId, 'ckpt-soria-geral-2')?.label).toBe('geral-2');
     });
 
     it('keeps separate metadata rows for the SAME session name on two profiles', () => {
@@ -279,7 +285,7 @@ describe('TmuxSessionManager', () => {
       const row = metadata.getByProfileAndSessionName(profileId,'ckpt-pranaops-claude-3');
       expect(row?.project).toBe('pranaops'); // parsed best-effort
       // Story 2.12/AC4: `agent` NÃO vem mais do nome — era daqui que a mentira
-      // nascia (`ckpt-acme-claude-1` rodando Codex gravava agent='claude').
+      // nascia (`ckpt-soria-claude-1` rodando Codex gravava agent='claude').
       // O segmento do meio é ASSUNTO; o agente real vem do processo (2.11).
       expect(row?.agent).toBeNull();
       expect(row?.agenda).toBe('claude');
@@ -637,18 +643,18 @@ describe('parseHookCoverage (Stories 2.11 + 2.12)', () => {
   const MARK = 1784634026; // 2026-07-21 08:40:26 — instalação real dos hooks
 
   it('separa "reciclar resolve" de "o agente não lê esses hooks"', () => {
-    // O caso REAL de 2026-07-27: `ckpt-acme-claude-1` roda Codex apesar do
+    // O caso REAL de 2026-07-27: `ckpt-soria-claude-1` roda Codex apesar do
     // nome. O kind vem da cmdline, nunca do nome.
     const out = [
       `HOOK claude ${MARK} 1`,
       'HOOK codex - 0',
-      `ckpt-globex-claude-1 ${MARK - 400000} claude`, // antes + claude → reciclar resolve
-      `ckpt-acme-claude-1 ${MARK - 400000} codex`, // codex sem hook instalado → reciclar NÃO resolve
-      `ckpt-northwind-claude-1 ${MARK + 120000} claude`, // depois → coberta
+      `ckpt-stomalovers-claude-1 ${MARK - 400000} claude`, // antes + claude → reciclar resolve
+      `ckpt-soria-claude-1 ${MARK - 400000} codex`, // codex sem hook instalado → reciclar NÃO resolve
+      `ckpt-atendiai-claude-1 ${MARK + 120000} claude`, // depois → coberta
     ].join('\n');
     expect(parseHookCoverage(out)).toEqual({
-      noHooks: ['ckpt-globex-claude-1'],
-      unsupported: ['ckpt-acme-claude-1'],
+      noHooks: ['ckpt-stomalovers-claude-1'],
+      unsupported: ['ckpt-soria-claude-1'],
     });
   });
 
@@ -684,7 +690,7 @@ describe('parseHookCoverage (Stories 2.11 + 2.12)', () => {
     const out = [
       'HOOK claude - 1',
       'HOOK codex - 0',
-      `ckpt-acme-claude-1 ${MARK - 400000} claude`,
+      `ckpt-soria-claude-1 ${MARK - 400000} claude`,
       `ckpt-b-claude-1 ${MARK - 400000} codex`,
     ].join('\n');
     expect(parseHookCoverage(out)).toEqual({ noHooks: [], unsupported: ['ckpt-b-claude-1'] });
@@ -710,5 +716,70 @@ describe('parseHookCoverage (Stories 2.11 + 2.12)', () => {
   it('mantém fallback compatível com MARK global da 2.11/2.12 para Claude', () => {
     const out = [`MARK ${MARK}`, `ckpt-a-claude-1 ${MARK - 1} claude`].join('\n');
     expect(parseHookCoverage(out)).toEqual({ noHooks: ['ckpt-a-claude-1'], unsupported: [] });
+  });
+});
+
+describe('CODEX_HOOK_TRUST_PROBE (Story 2.13)', () => {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, item]) => [key, canonical(item)]),
+      );
+    }
+    return value;
+  };
+
+  it('rejeita trusted_hash antigo mesmo quando todas as chaves de evento existem', () => {
+    const home = mkdtempSync(join(tmpdir(), 'cockpit-codex-trust-'));
+    try {
+      const codexDir = join(home, '.codex');
+      mkdirSync(codexDir);
+      const definitions = [
+        ['PermissionRequest', 'permission_request', true],
+        ['UserPromptSubmit', 'user_prompt_submit', false],
+        ['PreToolUse', 'pre_tool_use', true],
+        ['PostToolUse', 'post_tool_use', true],
+        ['Stop', 'stop', false],
+      ] as const;
+      const hooks = Object.fromEntries(
+        definitions.map(([jsonEvent, eventName]) => [
+          jsonEvent,
+          [{ matcher: '', hooks: [{ type: 'command', command: `${home}/.cockpit/ckpt-hook.sh ${eventName} codex-hook` }] }],
+        ]),
+      );
+      writeFileSync(join(codexDir, 'hooks.json'), JSON.stringify({ hooks }));
+
+      const sections = definitions.map(([, eventName, keepsMatcher]) => {
+        const identity = {
+          event_name: eventName,
+          ...(keepsMatcher ? { matcher: '' } : {}),
+          hooks: [{ type: 'command', command: `${home}/.cockpit/ckpt-hook.sh ${eventName} codex-hook`, timeout: 600, async: false }],
+        };
+        const trustedHash = `sha256:${createHash('sha256').update(JSON.stringify(canonical(identity))).digest('hex')}`;
+        return `[hooks.state."${home}/.codex/hooks.json:${eventName}:0:0"]\ntrusted_hash = "${trustedHash}"`;
+      });
+      writeFileSync(join(codexDir, 'config.toml'), sections.join('\n'));
+
+      const runProbe = (): string => {
+        let output = '';
+        const probeProcess = {
+          env: { ...process.env, CKPT_CODEX_HOME: home },
+          stdout: { write: (value: string): void => { output += value; } },
+        };
+        const run = new Function('require', 'process', CODEX_HOOK_TRUST_PROBE);
+        run(createRequire(import.meta.url), probeProcess);
+        return output;
+      };
+      expect(runProbe()).toBe('1');
+
+      const stale = sections.join('\n').replace(/sha256:[a-f0-9]{64}/, `sha256:${'0'.repeat(64)}`);
+      writeFileSync(join(codexDir, 'config.toml'), stale);
+      expect(runProbe()).toBe('0');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
