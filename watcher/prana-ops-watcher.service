@@ -1,0 +1,29 @@
+# Prana OPS Watcher — fila de decisões de agentes (Story 2.1, Epic 2)
+#
+# LIÇÃO DE INCIDENTE (2026-07-15): uma VM foi congelada por um restart-loop de
+# 3 segundos de outro serviço. RestartSec >= 30 e os limites de burst abaixo são
+# obrigatórios, não preferência. Nunca reduzir.
+
+[Unit]
+Description=Prana OPS Watcher - fila de decisoes de agentes (127.0.0.1)
+After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ubuntu
+# Segredos/config (WATCHER_PORT, WATCHER_DB; Telegram/Azure nas stories 2.4/2.5)
+# vivem FORA do repo, em arquivo chmod 600 (ver DEPLOY.md).
+EnvironmentFile=/home/ubuntu/.cockpit/watcher.env
+WorkingDirectory=/home/ubuntu/.cockpit
+# Caminho do node varia por VPS (nvm/apt/local) — ajuste no deploy (DEPLOY.md
+# manda confirmar com `which node` antes de instalar a unit).
+ExecStart=/usr/local/bin/node /home/ubuntu/.cockpit/watcher.mjs
+Restart=on-failure
+RestartSec=30
+# Watcher escreve apenas no próprio diretório de dados.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

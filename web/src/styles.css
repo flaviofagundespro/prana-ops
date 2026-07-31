@@ -1,0 +1,1219 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #121212;
+  color: #e0e0e0;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.4rem 1rem;
+  background: #1b1b1b;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+/* Controles do grid no header (layouts + abas) — as abas rolam horizontalmente
+   dentro do próprio container em vez de estourar a barra. */
+.grid-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.grid-controls .terminal-grid-tabs {
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  scrollbar-width: thin;
+}
+
+/* A navegação (Dashboard/Settings) fica encostada à direita. */
+.app__nav {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.app__header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.app__main {
+  flex: 1;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  min-height: 0;
+}
+
+.app__panel {
+  width: 260px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  background: #1b1b1b;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 0.75rem;
+  transition: width 0.15s ease, padding 0.15s ease;
+}
+
+/* Menu recolhido: trilho fino com expandir + criar sessão (padrão dos chats
+   de IA). Os terminais se reajustam sozinhos (ResizeObserver dos tiles). */
+.app__panel--collapsed {
+  width: 42px;
+  padding: 0.4rem 0.25rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.app__panel-toggle {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+.app__panel--collapsed .app__panel-toggle {
+  margin-bottom: 0;
+}
+
+.app__new-session-btn--compact {
+  width: auto;
+  padding: 0.2rem 0.55rem;
+  margin-bottom: 0;
+}
+
+.app__grid {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.terminal {
+  width: 100%;
+  height: 100%;
+}
+
+/* Session form (Story 1.4) */
+.session-form__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+}
+
+.session-form__row label {
+  font-size: 0.75rem;
+  color: #9a9a9a;
+}
+
+.session-form__row input,
+.session-form__row select {
+  background: #121212;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 0.35rem;
+}
+
+.session-form__actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.session-form button {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.session-form__error {
+  color: #ff6b6b;
+  font-size: 0.8rem;
+}
+
+.session-form__known ul {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0 0;
+}
+
+.session-form__known li {
+  margin-bottom: 0.25rem;
+}
+
+/* Terminal grid (Story 1.4) */
+.terminal-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.terminal-grid-toolbar,
+.terminal-grid-tabs {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.layout-btn,
+.grid-tab {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+
+.layout-btn--active,
+.grid-tab--active {
+  background: #3a6ea5;
+  border-color: #3a6ea5;
+}
+
+/*
+ * Aba do terminal ATUALMENTE visível: VERDE (feedback do uso diário 2026-07-29).
+ *
+ * Era mostarda (#b58900), e o ponto de `waiting_for_input` — âmbar #ffd966 —
+ * caía em cima dela: âmbar sobre âmbar, o sinal da epic praticamente invisível
+ * exatamente na aba que o operador está olhando. Verde aqui não é cor nova nem
+ * disputa a paleta do watcher: é o MESMO verde de "estou plugado aqui" da
+ * sidebar, e libera a faixa âmbar inteira para o único uso que importa de longe.
+ */
+.grid-tab--current {
+  background: #3f7a3f;
+  border-color: #5a9e5a;
+  color: #f2f8f2;
+  font-weight: 600;
+  cursor: default;
+}
+
+/*
+ * Aba VISÍVEL em `thinking`: azul (2026-07-29). Fecha a associação estado→aba —
+ * a cor da aba superior passa a dizer a MESMA coisa que o badge da sidebar, sem
+ * o operador ter que traduzir entre duas linguagens.
+ *
+ * Azul da família do ponto `--thinking` (#6f9fe6) e do badge da sidebar: não é
+ * cor nova, é a cor que `thinking` já tinha, agora aplicada em área maior.
+ * Só vale para a aba VISÍVEL: se pintasse as ocultas, a cor deixaria de
+ * responder "onde estou" e passaria a competir com o âmbar do waiting.
+ */
+.grid-tab--thinking.grid-tab--current {
+  background: #32538c;
+  border-color: #6f9fe6;
+  color: #eaf2ff;
+}
+
+/*
+ * Aba OCULTA em `thinking` (2026-07-29): moldura azul, não preenchimento.
+ *
+ * O preenchimento sólido segue reservado à aba visível — é ele que responde
+ * "onde estou". A moldura responde outra pergunta: "aquela ali ainda está
+ * trabalhando?". Duas perguntas, dois canais (fundo x borda), uma cor só.
+ *
+ * Precisa ser SALIENTE de propósito: o sinal que o operador espera não é o
+ * azul aparecer, é o azul SUMIR — "parou de pensar, posso mandar o próximo
+ * comando". Um sumiço só é percebido quando a presença era evidente, e era
+ * exatamente por isso que a bolinha de 0.6rem não servia.
+ */
+.grid-tab--thinking:not(.grid-tab--current) {
+  border-color: #6f9fe6;
+  box-shadow: inset 0 0 0 1px #6f9fe6;
+  color: #cfe0f5;
+  font-weight: 600;
+}
+
+/* Dentro da aba azul, o ponto azul é redundante — vira pontuação, não sinal. */
+.grid-tab--thinking .grid-tab-state--thinking {
+  color: #1b2f4f;
+}
+
+.grid-tab--thinking .grid-tab-coverage {
+  color: #cfe0f5;
+}
+
+/*
+ * Aba em `waiting_for_input`: o âmbar agora é da ABA INTEIRA, não de um ponto de
+ * 0.6rem. Vence `--current` (vem depois, mesma especificidade) porque "este
+ * agente está te esperando" importa mais que "esta aba está visível" — e uma aba
+ * visível em waiting é o caso mais urgente que existe, não o menos.
+ */
+.grid-tab--waiting {
+  background: #b58900;
+  border-color: #ffd966;
+  color: #1a1a1a;
+  font-weight: 700;
+  animation: ckpt-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+/* Abas ocultas (clicáveis): texto branco para contraste com a atual. */
+.grid-tab:not(.grid-tab--current) {
+  color: #ffffff;
+}
+
+/* Aba do painel ATIVO: com 2+ painéis todas as visíveis são amarelas, então o
+   amarelo sozinho não diz qual recebe a próxima troca. O anel escuro destaca a
+   ativa sem gastar uma cor nova (a paleta de cor já é do estado do watcher). */
+.grid-tab--active-pane {
+  box-shadow: inset 0 0 0 2px #1a1a1a;
+}
+
+/* Número do slot na aba — casa com o badge no canto do painel. */
+.grid-tab-slot {
+  display: inline-block;
+  min-width: 1.05rem;
+  margin-right: 0.35rem;
+  padding: 0 0.2rem;
+  border-radius: 2px;
+  background: rgba(26, 26, 26, 0.28);
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.grid-tab--active-pane .grid-tab-slot {
+  background: #1a1a1a;
+  color: #f0c674;
+}
+
+/* Aba + ✕ de fechar formam uma unidade visual (button não aninha button). */
+.grid-tab-wrap {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.grid-tab-wrap .grid-tab {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.grid-tab-close {
+  background: #2a2a2a;
+  color: #9a9a9a;
+  border: 1px solid #3a3a3a;
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  font-size: 0.7rem;
+}
+
+.grid-tab-close:hover {
+  color: #ff6b6b;
+}
+
+.terminal-grid {
+  flex: 1;
+  min-height: 0;
+  gap: 0.4rem;
+}
+
+.terminal-grid-cell {
+  position: relative; /* ancora o badge de slot */
+  background: #1e1e1e;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Número do painel (canto superior direito), igual ao da aba correspondente.
+   `pointer-events: none` é obrigatório: o badge flutua SOBRE o xterm e não
+   pode interceptar clique, arraste de seleção nem o mousedown que ativa o
+   painel. Discreto por padrão — é referência de leitura, não decoração. */
+.terminal-grid-slot {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  z-index: 3;
+  pointer-events: none;
+  min-width: 1.1rem;
+  padding: 0 0.25rem;
+  border-radius: 2px;
+  background: rgba(26, 26, 26, 0.72);
+  color: #7a7a7a;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.terminal-grid-slot--active {
+  background: #b58900;
+  color: #1a1a1a;
+}
+
+/* Painel ATIVO (recebe a próxima troca de aba): mesmo amarelo da aba atual —
+   um único código de cor para "onde você está". Só aparece com 2+ painéis. */
+.terminal-grid-cell--active {
+  border-color: #b58900;
+  box-shadow: 0 0 0 1px #b58900;
+}
+
+.terminal-tile {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/*
+ * Story 1.5 (AC3): the per-tile "reconnecting" indicator. A non-destructive
+ * overlay layer — it never unmounts the terminal (preserving the 1.4 display:none
+ * trade-off), it just sits ON TOP while the profile reconnects with backoff.
+ */
+.terminal-tile__reconnecting {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 2;
+  padding: 0.15rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: #1e1e1e;
+  background: #e6b800;
+  pointer-events: none;
+}
+
+/* Navigation (Story 1.6, AC9) */
+.app__nav {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.app__nav-btn {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.25rem 0.7rem;
+  cursor: pointer;
+}
+
+.app__nav-btn--active {
+  background: #3a6ea5;
+  border-color: #3a6ea5;
+}
+
+.app__settings {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  min-height: 0;
+}
+
+/* Sidebar (Story 1.6, AC1/AC10) */
+.sidebar {
+  margin-bottom: 0.75rem;
+}
+
+/* Botão que abre o diálogo de criação (o form saiu da sidebar). */
+.app__new-session-btn {
+  width: 100%;
+  margin-bottom: 0.6rem;
+  padding: 0.4rem;
+  background: #3a6ea5;
+  color: #fff;
+  border: 1px solid #3a6ea5;
+  border-radius: 3px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.app__dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.app__dialog {
+  position: relative;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 1rem;
+  min-width: 320px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.app__dialog-close {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  background: transparent;
+  color: #9a9a9a;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.sidebar__profile {
+  margin-bottom: 0.6rem;
+}
+
+/* Dropdown de VPS no topo da sidebar (substitui a lista de todas as VPS). */
+.sidebar__profile-select {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+}
+
+.sidebar__profile-name {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  color: #cfcfcf;
+}
+
+.sidebar__project-name {
+  margin: 0.3rem 0 0.15rem;
+  font-size: 0.72rem;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sidebar__sessions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar__session {
+  margin-bottom: 0.2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Story 1.7 — ações por sessão (editar label / excluir). */
+.sidebar__session-action {
+  background: #2a2a2a;
+  color: #cfcfcf;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.15rem 0.4rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-size: 0.8rem;
+}
+
+.sidebar__session-action--danger {
+  background: #7a1f1f;
+  border-color: #a33;
+  color: #fff;
+}
+
+.sidebar__session-edit {
+  display: flex;
+  flex: 1;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.sidebar__session-input {
+  flex: 1;
+  min-width: 0;
+  background: #181818;
+  color: #e0e0e0;
+  border: 1px solid #3a6ea5;
+  border-radius: 3px;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.85rem;
+}
+
+.sidebar__session-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 0.4rem;
+  background: #202020;
+  color: #e0e0e0;
+  border: 1px solid #2f2f2f;
+  border-radius: 3px;
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+
+.sidebar__status {
+  font-size: 0.65rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+
+/* `idle` VERDE agora significa "aberta no cockpit, e calma" — verde virou a cor
+   da presença do operador (a mesma da aba visível no grid). */
+.sidebar__status--idle {
+  background: #2f4f2f;
+  color: #b8e6b8;
+}
+
+/*
+ * `idle` de sessão NÃO aberta: cinza (feedback do uso diário 2026-07-29).
+ *
+ * Antes toda a sidebar era verde e a cor não respondia à pergunta que o operador
+ * faz ao escolher janela — "em quais eu já estou?". Pior: verde AFIRMAVA calma
+ * onde havia só ausência de informação (a mesma leitura que motivou o glifo ⃠ da
+ * 2.9). Cinza é o default correto; verde passa a ser conquistado.
+ *
+ * Só o `idle` dessatura. `thinking`/`waiting_for_input`/`error` são estados
+ * AFIRMADOS pelo watcher e mantêm cor mesmo com a sessão fechada — são
+ * justamente os que precisam gritar quando o operador não está olhando para lá.
+ */
+.sidebar__status--idle-detached {
+  background: #262626;
+  color: #7a7a7a;
+}
+
+.sidebar__status--error {
+  background: #5a2a2a;
+  color: #ffb3b3;
+}
+
+/* Story 2.6 (AC6) — estados reais do watcher. waiting_for_input é O sinal da
+   epic: âmbar pulsante, o mais chamativo da sidebar (mais que o error). */
+.sidebar__status--thinking {
+  background: #2a3a5a;
+  color: #b3ccff;
+}
+
+.sidebar__status--waiting_for_input {
+  background: #7a5a10;
+  color: #ffd966;
+  font-weight: 700;
+  animation: ckpt-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes ckpt-waiting-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 217, 102, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(255, 217, 102, 0);
+  }
+}
+
+/*
+ * Story 2.9 (AC6) — marca de AUSÊNCIA de sinal ("não estou vigiando isto").
+ *
+ * Deliberadamente SEM cor nova: a paleta já pertence aos estados do watcher, e
+ * `waiting_for_input` (âmbar pulsante acima) precisa continuar sendo o elemento
+ * mais chamativo da tela. A ausência se distingue por FORMA (o glifo ⃠) e por
+ * dessaturação — ela qualifica o estado ao lado, não compete com ele.
+ *
+ * Cinza-esmaecido é intencional: "sem sinal" não é emergência, é falta de
+ * informação. O que estaria errado seria pintá-la de verde/calma.
+ */
+.sidebar__coverage,
+.grid-tab-coverage {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.3rem;
+  color: #8a8a8a;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: help;
+}
+
+/* `stuck` e `no_pipe` sugerem ação (agente parado esperando / cano que não sobe
+   nem com re-arme), então ganham um pouco mais de presença — ainda sem entrar
+   na faixa do âmbar reservada ao waiting_for_input. */
+.sidebar__coverage--stuck,
+.grid-tab-coverage--stuck,
+.sidebar__coverage--no_pipe,
+.grid-tab-coverage--no_pipe,
+.sidebar__coverage--no_hooks,
+.grid-tab-coverage--no_hooks,
+.sidebar__coverage--hooks_unsupported,
+.grid-tab-coverage--hooks_unsupported {
+  color: #c9a227;
+}
+
+.grid-tab-coverage {
+  margin-right: 0.25rem;
+}
+
+/* Na aba VERDE (visível, fundo escuro), o cinza sumiria — clareia. */
+.grid-tab--current .grid-tab-coverage {
+  color: #cfe0cf;
+}
+
+/* Na aba ÂMBAR (waiting, fundo claro), o inverso: escurece para não sumir. */
+.grid-tab--waiting .grid-tab-coverage {
+  color: #4a4a4a;
+}
+
+.grid-tab--waiting .grid-tab-coverage--stuck,
+.grid-tab--waiting .grid-tab-coverage--no_pipe,
+.grid-tab--waiting .grid-tab-coverage--no_hooks {
+  color: #6b4e00;
+}
+
+/* O ponto ● de estado é redundante quando a ABA já está pintada de âmbar — e
+   âmbar sobre âmbar era exatamente o bug. Escurece: vira pontuação, não sinal. */
+.grid-tab--waiting .grid-tab-state--waiting_for_input {
+  color: #6b4e00;
+  animation: none;
+}
+
+/* Story 2.6 (AC3) — degradação discreta: uma linha apagada, sem alarde. */
+.sidebar__watcher-note {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
+  color: #6f6f6f;
+  font-style: italic;
+}
+
+/* Story 2.6 (AC4) — badge persistente de decisões no header. */
+.app__decisions-badge {
+  background: #7a5a10;
+  color: #ffd966;
+  border: 1px solid #a37c14;
+  border-radius: 10px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  animation: ckpt-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+/*
+ * "Respondeu e você não olhou" (2026-07-29) — ponto de não-lido, como e-mail.
+ *
+ * FORMA, não cor: verde é "estou aqui", azul é "pensando", âmbar é "te espera".
+ * Uma quarta cor disputaria com o âmbar, que precisa seguir vencendo a tela.
+ * Branco quase puro + peso: salta do cinza da aba oculta sem entrar na paleta
+ * semântica. Some no instante em que a aba entra num painel — a marca é da
+ * ATENÇÃO do operador, não do agente, e por isso tem que poder ser consumida.
+ */
+.grid-tab-responded {
+  margin-right: 0.3rem;
+  color: #f5f5f5;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+/* Story 2.6 (AC6) — indicador de estado nas abas do grid. */
+.grid-tab-state {
+  margin-right: 0.3rem;
+  font-size: 0.6rem;
+  vertical-align: middle;
+}
+
+.grid-tab-state--thinking {
+  color: #6f9fe6;
+}
+
+.grid-tab-state--idle {
+  color: #7fbf7f;
+}
+
+.grid-tab-state--error {
+  color: #e67f7f;
+}
+
+.grid-tab-state--waiting_for_input {
+  color: #ffd966;
+  animation: ckpt-waiting-pulse 1.6s ease-in-out infinite;
+}
+
+/* Story 2.6 (AC5) — painel da fila de decisões (escopo visual mínimo). */
+.decisions-panel {
+  position: fixed;
+  top: 3rem;
+  right: 0.5rem;
+  width: 380px;
+  max-width: 92vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  z-index: 110;
+}
+
+.decisions-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.decisions-panel__title {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.decisions-panel__close {
+  background: transparent;
+  color: #9a9a9a;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.decisions-panel__empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #9a9a9a;
+}
+
+.decisions-panel__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.decisions-panel__item {
+  border: 1px solid #2f2f2f;
+  border-radius: 4px;
+  padding: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.decisions-panel__item--seen {
+  opacity: 0.6;
+}
+
+.decisions-panel__meta {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.7rem;
+  color: #9a9a9a;
+}
+
+.decisions-panel__session {
+  font-family: monospace;
+}
+
+.decisions-panel__risk {
+  margin-left: auto;
+  font-size: 0.65rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
+
+.decisions-panel__risk--low {
+  background: #2f4f2f;
+  color: #b8e6b8;
+}
+
+/* Risco high com o visual mais duro do painel (AC5). */
+.decisions-panel__risk--high {
+  background: #7a1f1f;
+  color: #ffb3b3;
+  font-weight: 700;
+}
+
+.decisions-panel__summary {
+  margin: 0.35rem 0;
+  font-size: 0.82rem;
+  color: #e0e0e0;
+}
+
+.decisions-panel__footer {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.decisions-panel__time {
+  font-size: 0.68rem;
+  color: #8a8a8a;
+  margin-right: auto;
+}
+
+.decisions-panel__action {
+  background: #2a2a2a;
+  color: #cfcfcf;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.decisions-panel__action--dismiss:hover {
+  background: #7a1f1f;
+  border-color: #a33;
+  color: #fff;
+}
+
+.decisions-panel__action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Story 2.7 — ação responder no item. */
+.decisions-panel__respond {
+  margin: 0.4rem 0;
+}
+
+.decisions-panel__yn {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.decisions-panel__respond-input {
+  flex: 1;
+  min-width: 0;
+  background: #181818;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.78rem;
+}
+
+/* Gate high (AC4): fundo vermelho-escuro, comando exato em destaque. */
+.decisions-panel__challenge {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: #2a1212;
+  border: 1px solid #7a1f1f;
+  border-radius: 4px;
+}
+
+.decisions-panel__challenge-warn {
+  margin: 0 0 0.35rem;
+  font-size: 0.74rem;
+  color: #ffb3b3;
+  font-weight: 700;
+}
+
+.decisions-panel__challenge-cmd {
+  display: block;
+  padding: 0.35rem 0.45rem;
+  background: #101010;
+  border: 1px solid #3a3a3a;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: #e0e0e0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: auto;
+}
+
+.decisions-panel__challenge-actions {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+}
+
+.decisions-panel__action--confirm {
+  background: #7a1f1f;
+  border-color: #a33;
+  color: #fff;
+  font-weight: 700;
+}
+
+.decisions-panel__respond-error {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: #ffb3b3;
+}
+
+/* Settings (Story 1.6, AC2/AC4/AC5) */
+.settings {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.settings__intro {
+  margin-bottom: 1rem;
+}
+
+.settings__intro h2 {
+  margin: 0 0 0.2rem;
+  font-size: 1.3rem;
+  letter-spacing: 0.01em;
+}
+
+.settings__subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #9a9a9a;
+}
+
+.settings__key-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #c9c9c9;
+  background: #1c2530;
+  border: 1px solid #2a3a4d;
+  border-left: 3px solid #3a6ea5;
+  border-radius: 4px;
+  padding: 0.55rem 0.75rem;
+  margin: 0 0 1rem;
+}
+
+.settings__key-note-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.settings__form {
+  background: #191919;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 1rem 1.1rem 1.1rem;
+  margin-bottom: 1rem;
+}
+
+.settings__form-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #b7c7db;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.7rem 0.9rem;
+}
+
+.settings__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.settings__row--wide {
+  grid-column: 1 / -1;
+}
+
+.settings__row label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #9a9a9a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.settings__row input {
+  background: #121212;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.9rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.settings__row input:focus {
+  outline: none;
+  border-color: #3a6ea5;
+  box-shadow: 0 0 0 2px rgba(58, 110, 165, 0.35);
+}
+
+.settings__row input::placeholder {
+  color: #5a5a5a;
+}
+
+.settings__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.settings__btn {
+  background: #262626;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+}
+
+.settings__btn:hover:not(:disabled) {
+  background: #313131;
+  border-color: #4a4a4a;
+}
+
+.settings__btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.settings__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.settings__btn--primary {
+  background: #3a6ea5;
+  border-color: #3a6ea5;
+  color: #fff;
+  font-weight: 600;
+}
+
+.settings__btn--primary:hover:not(:disabled) {
+  background: #4a80ba;
+  border-color: #4a80ba;
+}
+
+.settings__btn--danger:hover:not(:disabled) {
+  background: #4a2323;
+  border-color: #7a3a3a;
+  color: #ffb3b3;
+}
+
+.settings__btn--sm {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.settings__error {
+  color: #ff6b6b;
+  font-size: 0.8rem;
+  background: #2a1616;
+  border: 1px solid #4a2323;
+  border-radius: 4px;
+  padding: 0.5rem 0.7rem;
+  margin: 0 0 0.9rem;
+}
+
+.settings__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.settings__item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem 0.75rem;
+  background: #191919;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  transition: border-color 0.15s ease;
+}
+
+.settings__item:hover {
+  border-color: #3a3a3a;
+}
+
+.settings__item-avatar {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #2a3a4d;
+  color: #9cc0e6;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.settings__item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings__item-label {
+  color: #d5d5d5;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings__item-actions {
+  flex: none;
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings__test {
+  display: inline-block;
+  align-self: flex-start;
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  font-family: monospace;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.settings__test--loading {
+  color: #e6b800;
+  background: rgba(230, 184, 0, 0.12);
+}
+
+.settings__test--ok {
+  color: #7bd67b;
+  background: rgba(123, 214, 123, 0.12);
+}
+
+.settings__test--error {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}

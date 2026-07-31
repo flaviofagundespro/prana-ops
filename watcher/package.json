@@ -1,0 +1,16 @@
+{
+  "name": "@prana-ops/watcher",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prana OPS Watcher — daemon de fila de decisões na VPS (arquivo único, node:sqlite, systemd).",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  }
+}
