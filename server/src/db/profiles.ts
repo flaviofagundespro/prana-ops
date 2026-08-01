@@ -9,6 +9,7 @@ import type { CockpitDatabase } from './schema.js';
 
 export interface Profile {
   id: number;
+  kind: ProfileKind;
   name: string;
   host: string;
   port: number;
@@ -19,15 +20,19 @@ export interface Profile {
   updatedAt: string;
 }
 
+export type ProfileKind = 'ssh' | 'local';
+
 export interface CreateProfileInput {
   name: string;
-  host: string;
+  kind?: ProfileKind;
+  host?: string;
   port?: number;
-  user: string;
-  keyPath: string;
+  user?: string;
+  keyPath?: string;
 }
 
 export interface UpdateProfileInput {
+  kind?: ProfileKind;
   name?: string;
   host?: string;
   port?: number;
@@ -38,6 +43,7 @@ export interface UpdateProfileInput {
 /** Internal DB row shape (snake_case columns). */
 interface ProfileRow {
   id: number;
+  kind: ProfileKind;
   name: string;
   host: string;
   port: number;
@@ -50,6 +56,7 @@ interface ProfileRow {
 function rowToProfile(row: ProfileRow): Profile {
   return {
     id: row.id,
+    kind: row.kind,
     name: row.name,
     host: row.host,
     port: row.port,
@@ -68,16 +75,18 @@ export class ProfilesRepository {
   constructor(private readonly db: CockpitDatabase) {}
 
   create(input: CreateProfileInput): Profile {
+    const kind = input.kind ?? 'ssh';
     const stmt = this.db.prepare(
-      `INSERT INTO profiles (name, host, port, user, key_path)
-       VALUES (@name, @host, @port, @user, @keyPath)`,
+      `INSERT INTO profiles (name, kind, host, port, user, key_path)
+       VALUES (@name, @kind, @host, @port, @user, @keyPath)`,
     );
     const result = stmt.run({
       name: input.name,
-      host: input.host,
+      kind,
+      host: kind === 'local' ? '' : (input.host ?? ''),
       port: input.port ?? 22,
-      user: input.user,
-      keyPath: input.keyPath,
+      user: kind === 'local' ? '' : (input.user ?? ''),
+      keyPath: kind === 'local' ? '' : (input.keyPath ?? ''),
     });
     return this.get(Number(result.lastInsertRowid))!;
   }
@@ -101,17 +110,24 @@ export class ProfilesRepository {
     if (!existing) return null;
 
     const merged = {
+      kind: input.kind ?? existing.kind,
       name: input.name ?? existing.name,
       host: input.host ?? existing.host,
       port: input.port ?? existing.port,
       user: input.user ?? existing.user,
       keyPath: input.keyPath ?? existing.keyPath,
     };
+    if (merged.kind === 'local') {
+      merged.host = '';
+      merged.port = 22;
+      merged.user = '';
+      merged.keyPath = '';
+    }
 
     this.db
       .prepare(
         `UPDATE profiles
-         SET name = @name, host = @host, port = @port, user = @user,
+         SET name = @name, kind = @kind, host = @host, port = @port, user = @user,
              key_path = @keyPath, updated_at = datetime('now')
          WHERE id = @id`,
       )

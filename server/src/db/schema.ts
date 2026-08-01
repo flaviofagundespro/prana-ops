@@ -77,6 +77,22 @@ const SESSION_METADATA_ADDED_COLUMNS: ReadonlyArray<{ name: string; ddl: string 
 ];
 
 /**
+ * Story 2.19 — profiles created before local environments existed are SSH by
+ * definition. Adding the discriminator with a DEFAULT keeps every existing row
+ * usable without rewriting credentials or requiring a manual migration.
+ */
+export function applyProfileMigrations(db: CockpitDatabase): void {
+  const existing = new Set(
+    (db.prepare(`PRAGMA table_info(profiles)`).all() as Array<{ name: string }>).map(
+      (col) => col.name,
+    ),
+  );
+  if (!existing.has('kind')) {
+    db.exec(`ALTER TABLE profiles ADD COLUMN kind TEXT NOT NULL DEFAULT 'ssh'`);
+  }
+}
+
+/**
  * Idempotently applies the Story 1.3 `session_metadata` column additions. Safe to
  * run on every boot: a column that already exists is skipped. Exported so tests
  * can assert idempotency directly.
@@ -120,6 +136,7 @@ export function initDatabase(dbPath: string): CockpitDatabase {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA_SQL);
+  applyProfileMigrations(db);
   // Story 1.3: idempotent column additions to session_metadata (agent,
   // session_name, status). Run after the base CREATE so an existing DB from
   // Story 1.1 is upgraded in place.

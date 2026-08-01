@@ -14,7 +14,7 @@
 import type { Server as HttpServer } from 'node:http';
 import { PORT } from '../config.js';
 import { WebSocketServer, type WebSocket } from 'ws';
-import type { ConnectionManager } from '../ssh/connection-manager.js';
+import type { ProfileChannelTransport } from '../transport/profile-connection-manager.js';
 import type { TmuxSessionManager } from '../tmux/session-manager.js';
 import type { WatcherSnapshot } from '../watcher/poller.js';
 import type { RespondOutcome } from '../watcher/responder.js';
@@ -66,7 +66,7 @@ export interface AttachWebSocketOptions {
    * Optional SSH connection manager. When provided, channel:* messages are
    * routed to it. When omitted (e.g. the 1.1 smoke test), only ping/pong works.
    */
-  connectionManager?: ConnectionManager;
+  connectionManager?: ProfileChannelTransport;
   /**
    * Optional tmux session manager (Story 1.3). When provided, `session:*`
    * messages (create-or-attach, list) are routed to it. This is a layer ABOVE

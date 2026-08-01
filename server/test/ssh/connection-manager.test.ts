@@ -61,7 +61,8 @@ class MockClient extends EventEmitter {
 }
 
 const PROFILE: Profile = {
-  id: 1,
+      id: 1,
+      kind: 'ssh',
   name: 'test-vps',
   host: '10.0.0.5',
   port: 2222,

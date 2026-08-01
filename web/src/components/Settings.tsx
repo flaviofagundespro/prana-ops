@@ -35,6 +35,7 @@ type TestState =
 /** Profile shape returned by the REST API (id is numeric server-side). */
 export interface Profile {
   id: number;
+  kind?: 'ssh' | 'local';
   name: string;
   host: string;
   port: number;
@@ -44,6 +45,7 @@ export interface Profile {
 
 /** Editable profile fields (create/update payload). */
 interface ProfileFormState {
+  kind: 'ssh' | 'local';
   name: string;
   host: string;
   port: string; // kept as string in the input; parsed on submit
@@ -51,7 +53,14 @@ interface ProfileFormState {
   keyPath: string;
 }
 
-const EMPTY_FORM: ProfileFormState = { name: '', host: '', port: '', user: '', keyPath: '' };
+const EMPTY_FORM: ProfileFormState = {
+  kind: 'ssh',
+  name: '',
+  host: '',
+  port: '',
+  user: '',
+  keyPath: '',
+};
 
 /** Injectable fetch (defaults to the global) — matches the browser `fetch` shape. */
 export type FetchLike = typeof fetch;
@@ -116,26 +125,32 @@ export function Settings({ fetchFn = fetch, ws }: SettingsProps): JSX.Element {
 
   const missingRequired = (): boolean =>
     form.name.trim() === '' ||
-    form.host.trim() === '' ||
-    form.user.trim() === '' ||
-    form.keyPath.trim() === '';
+    (form.kind === 'ssh' &&
+      (form.host.trim() === '' || form.user.trim() === '' || form.keyPath.trim() === ''));
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     setError(null);
     // Client-side mirror of the server's required fields (avoids an obvious 400).
     if (missingRequired()) {
-      setError('name, host, user e keyPath são obrigatórios');
+      setError(
+        form.kind === 'local'
+          ? 'nome é obrigatório para um ambiente local'
+          : 'name, host, user e keyPath são obrigatórios',
+      );
       return;
     }
 
     const payload: Record<string, unknown> = {
       name: form.name,
-      host: form.host,
-      user: form.user,
-      keyPath: form.keyPath,
+      kind: form.kind,
     };
-    if (form.port.trim() !== '') payload.port = Number(form.port);
+    if (form.kind === 'ssh') {
+      payload.host = form.host;
+      payload.user = form.user;
+      payload.keyPath = form.keyPath;
+      if (form.port.trim() !== '') payload.port = Number(form.port);
+    }
 
     const url = editingId === null ? '/api/profiles' : `/api/profiles/${editingId}`;
     const method = editingId === null ? 'POST' : 'PUT';
@@ -160,6 +175,7 @@ export function Settings({ fetchFn = fetch, ws }: SettingsProps): JSX.Element {
     setEditingId(profile.id);
     setError(null);
     setForm({
+      kind: profile.kind ?? 'ssh',
       name: profile.name,
       host: profile.host,
       port: String(profile.port),
@@ -182,51 +198,75 @@ export function Settings({ fetchFn = fetch, ws }: SettingsProps): JSX.Element {
   return (
     <div className="settings">
       <div className="settings__intro">
-        <h2>Perfis de VPS</h2>
-        <p className="settings__subtitle">Cadastre e gerencie as conexões SSH usadas pelo cockpit.</p>
+        <h2>Ambientes</h2>
+        <p className="settings__subtitle">Gerencie conexões SSH e o tmux desta máquina.</p>
       </div>
 
       <p className="settings__key-note">
         <span className="settings__key-note-icon" aria-hidden="true">
           🔒
         </span>
-        A chave SSH deve existir localmente com permissão 600; o cockpit nunca armazena senhas.
+        Perfis SSH usam uma chave local com permissão 600. O ambiente local não usa chave nem
+        altera os logins do Claude ou Codex.
       </p>
 
-      <form className="settings__form" onSubmit={handleSubmit} aria-label="Perfil de VPS">
+      <form className="settings__form" onSubmit={handleSubmit} aria-label="Ambiente">
         <h3 className="settings__form-title">{editingId === null ? 'Novo perfil' : 'Editando perfil'}</h3>
         <div className="settings__grid">
+          <div className="settings__row">
+            <label htmlFor="st-kind">Tipo</label>
+            <select
+              id="st-kind"
+              value={form.kind}
+              disabled={editingId !== null}
+              onChange={(e) => {
+                const kind = e.target.value as ProfileFormState['kind'];
+                setForm({
+                  ...form,
+                  kind,
+                  name: kind === 'local' && form.name.trim() === '' ? 'Ryzen' : form.name,
+                });
+              }}
+            >
+              <option value="ssh">SSH</option>
+              <option value="local">Local</option>
+            </select>
+          </div>
           <div className="settings__row">
             <label htmlFor="st-name">Nome</label>
             <input id="st-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </div>
-          <div className="settings__row">
-            <label htmlFor="st-host">Host</label>
-            <input id="st-host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
-          </div>
-          <div className="settings__row">
-            <label htmlFor="st-port">Porta</label>
-            <input
-              id="st-port"
-              type="number"
-              value={form.port}
-              placeholder="22"
-              onChange={(e) => setForm({ ...form, port: e.target.value })}
-            />
-          </div>
-          <div className="settings__row">
-            <label htmlFor="st-user">Usuário</label>
-            <input id="st-user" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
-          </div>
-          <div className="settings__row settings__row--wide">
-            <label htmlFor="st-keypath">Path da chave</label>
-            <input
-              id="st-keypath"
-              value={form.keyPath}
-              placeholder="/home/user/.ssh/id_ed25519"
-              onChange={(e) => setForm({ ...form, keyPath: e.target.value })}
-            />
-          </div>
+          {form.kind === 'ssh' && (
+            <>
+              <div className="settings__row">
+                <label htmlFor="st-host">Host</label>
+                <input id="st-host" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
+              </div>
+              <div className="settings__row">
+                <label htmlFor="st-port">Porta</label>
+                <input
+                  id="st-port"
+                  type="number"
+                  value={form.port}
+                  placeholder="22"
+                  onChange={(e) => setForm({ ...form, port: e.target.value })}
+                />
+              </div>
+              <div className="settings__row">
+                <label htmlFor="st-user">Usuário</label>
+                <input id="st-user" value={form.user} onChange={(e) => setForm({ ...form, user: e.target.value })} />
+              </div>
+              <div className="settings__row settings__row--wide">
+                <label htmlFor="st-keypath">Path da chave</label>
+                <input
+                  id="st-keypath"
+                  value={form.keyPath}
+                  placeholder="/home/user/.ssh/id_ed25519"
+                  onChange={(e) => setForm({ ...form, keyPath: e.target.value })}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="settings__actions">
@@ -255,7 +295,9 @@ export function Settings({ fetchFn = fetch, ws }: SettingsProps): JSX.Element {
             </span>
             <span className="settings__item-info">
               <span className="settings__item-label">
-                {profile.name} — {profile.user}@{profile.host}:{profile.port}
+                {profile.kind === 'local'
+                  ? `${profile.name} — tmux local`
+                  : `${profile.name} — ${profile.user}@${profile.host}:${profile.port}`}
               </span>
               {(() => {
                 const state = testStates[String(profile.id)] ?? { status: 'idle' };

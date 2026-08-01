@@ -75,6 +75,29 @@ describe('Settings (AC2/AC4/AC5)', () => {
     await waitFor(() => expect(screen.getByText(/host-b — /)).toBeInTheDocument());
   });
 
+  it('creates the local Ryzen environment without showing or sending SSH credentials', async () => {
+    const local: Profile = { id: 2, kind: 'local', name: 'Ryzen', host: '', port: 22, user: '', keyPath: '' };
+    const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST') return jsonResponse(local, true, 201);
+      return jsonResponse(seed);
+    });
+    render(<Settings fetchFn={fetchFn} />);
+    await waitFor(() => expect(screen.getByText(/azure — /)).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText('Tipo'), { target: { value: 'local' } });
+    expect(screen.getByLabelText('Nome')).toHaveValue('Ryzen');
+    expect(screen.queryByLabelText('Host')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Usuário')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Path da chave')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Criar perfil' }));
+
+    await waitFor(() => {
+      const call = fetchFn.mock.calls.find((entry) => entry[1]?.method === 'POST');
+      expect(call).toBeDefined();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ name: 'Ryzen', kind: 'local' });
+    });
+  });
+
   it('edits a profile (PUT) with the correct id', async () => {
     const fetchFn = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'PUT') return jsonResponse({ ...seed[0], host: 'new-host' });

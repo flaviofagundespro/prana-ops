@@ -62,6 +62,7 @@ class SaturatingClient extends EventEmitter {
 
 const PROFILE: Profile = {
   id: 1,
+  kind: 'ssh',
   name: 'azure',
   host: '10.0.0.1',
   port: 22,
