@@ -1029,7 +1029,8 @@ body {
   letter-spacing: 0.03em;
 }
 
-.settings__row input {
+.settings__row input,
+.settings__row select {
   background: #121212;
   color: #e0e0e0;
   border: 1px solid #333;
@@ -1039,7 +1040,8 @@ body {
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.settings__row input:focus {
+.settings__row input:focus,
+.settings__row select:focus {
   outline: none;
   border-color: #3a6ea5;
   box-shadow: 0 0 0 2px rgba(58, 110, 165, 0.35);

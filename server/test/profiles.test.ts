@@ -23,11 +23,17 @@ describe('ProfilesRepository CRUD', () => {
     });
 
     expect(created.id).toBeGreaterThan(0);
+    expect(created.kind).toBe('ssh');
     expect(created.port).toBe(22); // default
     expect(created.keyPath).toBe('/home/deploy/.ssh/id_ed25519');
 
     const fetched = repo.get(created.id);
     expect(fetched?.name).toBe('prod-vps');
+  });
+
+  it('stores a local profile without SSH credentials', () => {
+    const created = repo.create({ name: 'Ryzen', kind: 'local' });
+    expect(created).toMatchObject({ kind: 'local', name: 'Ryzen', host: '', user: '', keyPath: '' });
   });
 
   it('lists, updates and deletes profiles', () => {

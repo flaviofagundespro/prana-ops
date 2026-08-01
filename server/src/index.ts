@@ -11,7 +11,7 @@ import { initDatabase } from './db/schema.js';
 import { ProfilesRepository } from './db/profiles.js';
 import { createApp } from './http/app.js';
 import { attachWebSocketServer } from './ws/index.js';
-import { ConnectionManager } from './ssh/connection-manager.js';
+import { ProfileConnectionManager } from './transport/profile-connection-manager.js';
 import { SessionMetadataRepository } from './db/session-metadata.js';
 import { TmuxSessionManager } from './tmux/session-manager.js';
 import { WatcherPoller } from './watcher/poller.js';
@@ -57,7 +57,7 @@ function start(): void {
 
   // SSH transport (Story 1.2): one connection per profile, N shell channels.
   const profiles = new ProfilesRepository(db);
-  const connectionManager = new ConnectionManager({ profiles });
+  const connectionManager = new ProfileConnectionManager({ profiles });
   // AC5: never let a surfaced SSH error crash the process — log and continue.
   connectionManager.on('channelError', ({ profileId, channelId, message }) => {
     console.error(`[ssh] error (profile=${profileId}${channelId ? ` channel=${channelId}` : ''}): ${message}`);

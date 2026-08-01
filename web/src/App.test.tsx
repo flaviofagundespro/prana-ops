@@ -578,7 +578,7 @@ describe('App (Story 1.4 + 1.6 integration)', () => {
 
     // Go to Settings.
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByRole('form', { name: 'Perfil de VPS' })).toBeInTheDocument();
+    expect(screen.getByRole('form', { name: 'Ambiente' })).toBeInTheDocument();
     // Dashboard is hidden (display:none), NOT unmounted — the tile is still there.
     const dashboard = container.querySelector('.app__main') as HTMLElement;
     expect(dashboard.style.display).toBe('none');

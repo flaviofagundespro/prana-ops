@@ -8,7 +8,11 @@
 import express, { type Express, type Request, type Response } from 'express';
 import fs from 'node:fs';
 import type { CockpitDatabase } from '../db/schema.js';
-import { ProfilesRepository, type CreateProfileInput } from '../db/profiles.js';
+import {
+  ProfilesRepository,
+  type CreateProfileInput,
+  type ProfileKind,
+} from '../db/profiles.js';
 import { SessionMetadataRepository } from '../db/session-metadata.js';
 
 export interface CreateAppOptions {
@@ -31,6 +35,10 @@ export interface CreateAppOptions {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isProfileKind(value: unknown): value is ProfileKind {
+  return value === 'ssh' || value === 'local';
 }
 
 export function createApp({ db, webDist, onProfileDeleted, onSessionDelete }: CreateAppOptions): Express {
@@ -76,11 +84,16 @@ export function createApp({ db, webDist, onProfileDeleted, onSessionDelete }: Cr
 
   app.post('/api/profiles', (req: Request, res: Response) => {
     const body = req.body as Partial<CreateProfileInput>;
+    const kind = body.kind ?? 'ssh';
+    if (!isNonEmptyString(body.name) || !isProfileKind(kind)) {
+      res.status(400).json({ error: 'name and a valid kind (ssh or local) are required' });
+      return;
+    }
     if (
-      !isNonEmptyString(body.name) ||
-      !isNonEmptyString(body.host) ||
-      !isNonEmptyString(body.user) ||
-      !isNonEmptyString(body.keyPath)
+      kind === 'ssh' &&
+      (!isNonEmptyString(body.host) ||
+        !isNonEmptyString(body.user) ||
+        !isNonEmptyString(body.keyPath))
     ) {
       res
         .status(400)
@@ -89,16 +102,43 @@ export function createApp({ db, webDist, onProfileDeleted, onSessionDelete }: Cr
     }
     const created = profiles.create({
       name: body.name,
-      host: body.host,
+      kind,
+      ...(kind === 'ssh' ? { host: body.host, user: body.user, keyPath: body.keyPath } : {}),
       port: typeof body.port === 'number' ? body.port : undefined,
-      user: body.user,
-      keyPath: body.keyPath,
     });
     res.status(201).json(created);
   });
 
   app.put('/api/profiles/:id', (req: Request, res: Response) => {
-    const updated = profiles.update(Number(req.params.id), req.body ?? {});
+    const id = Number(req.params.id);
+    const existing = profiles.get(id);
+    if (!existing) {
+      res.status(404).json({ error: 'profile not found' });
+      return;
+    }
+    const body = (req.body ?? {}) as Partial<CreateProfileInput>;
+    const kind = body.kind ?? existing.kind;
+    const name = body.name ?? existing.name;
+    if (body.kind !== undefined && body.kind !== existing.kind) {
+      res.status(400).json({ error: 'profile kind cannot be changed; create a new profile instead' });
+      return;
+    }
+    if (!isProfileKind(kind) || !isNonEmptyString(name)) {
+      res.status(400).json({ error: 'name and a valid kind (ssh or local) are required' });
+      return;
+    }
+    if (
+      kind === 'ssh' &&
+      (!isNonEmptyString(body.host ?? existing.host) ||
+        !isNonEmptyString(body.user ?? existing.user) ||
+        !isNonEmptyString(body.keyPath ?? existing.keyPath))
+    ) {
+      res
+        .status(400)
+        .json({ error: 'host, user and keyPath are required for SSH profiles' });
+      return;
+    }
+    const updated = profiles.update(id, body);
     if (!updated) {
       res.status(404).json({ error: 'profile not found' });
       return;

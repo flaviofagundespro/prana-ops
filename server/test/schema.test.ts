@@ -3,7 +3,8 @@
  * no-password security invariant (AC5).
  */
 import { describe, it, expect } from 'vitest';
-import { initDatabase } from '../src/db/schema.js';
+import Database from 'better-sqlite3';
+import { applyProfileMigrations, initDatabase } from '../src/db/schema.js';
 
 describe('SQLite schema', () => {
   it('creates the profiles and session_metadata tables', () => {
@@ -15,6 +16,19 @@ describe('SQLite schema', () => {
 
     expect(names).toContain('profiles');
     expect(names).toContain('session_metadata');
+    db.close();
+  });
+
+  it('migrates legacy profiles to kind=ssh idempotently', () => {
+    const db = new Database(':memory:');
+    db.exec(`CREATE TABLE profiles (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL, host TEXT NOT NULL,
+      port INTEGER NOT NULL, user TEXT NOT NULL, key_path TEXT NOT NULL
+    )`);
+    db.prepare(`INSERT INTO profiles VALUES (1, 'azure', 'host', 22, 'ubuntu', '/key')`).run();
+    applyProfileMigrations(db);
+    applyProfileMigrations(db);
+    expect(db.prepare(`SELECT kind FROM profiles WHERE id = 1`).get()).toEqual({ kind: 'ssh' });
     db.close();
   });
 
